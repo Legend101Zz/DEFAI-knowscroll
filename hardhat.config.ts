@@ -5,7 +5,7 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 const config: HardhatUserConfig = {
-  solidity: "0.8.28",
+  solidity: "0.8.26",
   networks: {
     sonic: {
       url: process.env.SONIC_RPC_URL || "",
