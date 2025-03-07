@@ -8,6 +8,11 @@ import * as dotenv from "dotenv";
 
 dotenv.config();
 
+console.log(
+  "checking env",
+  process.env.PRIVATE_KEY,
+  process.env.SONIC_TESTNET_RPC_URL
+);
 const config: HardhatUserConfig = {
   solidity: {
     version: "0.8.26",
