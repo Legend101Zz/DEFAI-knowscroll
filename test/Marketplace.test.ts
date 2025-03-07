@@ -5,7 +5,7 @@ import { parseEther } from "ethers";
 
 // Import TypeChain generated types
 import { ChannelNFT } from "../typechain-types/contracts/ChannelNFT.sol";
-import { Marketplace } from "../typechain-types/contracts/Marketplace.sol";
+import { Marketplace } from "../typechain-types/contracts/Marketplace";
 
 describe("Marketplace", function () {
   let channelNFT: ChannelNFT;
