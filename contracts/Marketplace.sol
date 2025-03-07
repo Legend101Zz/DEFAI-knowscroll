@@ -1,254 +1,374 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
-import "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
- * @title Marketplace
- * @dev Contract for listing and trading channel shares on the KnowScroll platform
+ * @title RevenueDistribution
+ * @dev Contract for distributing revenue to channel owners
+ * based on their fractional ownership with improved token support
  */
-contract Marketplace is ERC1155Holder, Ownable, ReentrancyGuard {
-    // NFT contract address
+contract RevenueDistribution is Ownable {
+    using SafeERC20 for IERC20;
+    
+    // Channel NFT contract address
     address public channelNFT;
     
-    // Marketplace fee percentage (in basis points, 1% = 100)
-    uint256 public marketplaceFeePercentage;
+    // Platform fee percentage (in basis points, 1% = 100)
+    uint256 public platformFeePercentage;
     
-    // Marketplace fee recipient
-    address public feeRecipient;
+    // Platform fee recipient
+    address public platformFeeRecipient;
     
-    // Listing struct to store listing information
-    struct Listing {
-        address seller;
-        uint256 channelId;
-        uint256 amount;
-        uint256 pricePerShare;
-        uint256 listedAt;
-        bool active;
-    }
+    // Mapping from channelId to accumulated ETH revenue for that channel
+    mapping(uint256 => uint256) public channelRevenue;
     
-    // Counter for listing IDs
-    uint256 private _listingIdCounter;
+    // Mapping from channelId to mapping from shareHolder to claimed ETH revenue
+    mapping(uint256 => mapping(address => uint256)) public claimedRevenue;
     
-    // Mapping from listingId to Listing
-    mapping(uint256 => Listing) public listings;
+    // Token balance tracking - mapping from channelId to token address to amount
+    mapping(uint256 => mapping(address => uint256)) public channelTokenRevenue;
     
-    // Mapping from seller to their active listing IDs
-    mapping(address => uint256[]) private _sellerListings;
+    // Token claimed tracking - mapping from channelId to shareholder to token address to claimed amount
+    mapping(uint256 => mapping(address => mapping(address => uint256))) public claimedTokenRevenue;
+    
+    // Array to track supported tokens for a channel
+    mapping(uint256 => address[]) public channelSupportedTokens;
+    
+    // Mapping to check if a token is already tracked for a channel
+    mapping(uint256 => mapping(address => bool)) private isTokenTracked;
     
     // Events
-    event ListingCreated(uint256 indexed listingId, address indexed seller, uint256 indexed channelId, uint256 amount, uint256 pricePerShare);
-    event ListingUpdated(uint256 indexed listingId, uint256 newAmount, uint256 newPricePerShare);
-    event ListingCancelled(uint256 indexed listingId);
-    event SharesPurchased(uint256 indexed listingId, address indexed buyer, uint256 amount, uint256 totalPrice);
-    event MarketplaceFeeUpdated(uint256 oldFee, uint256 newFee);
-    event FeeRecipientUpdated(address oldRecipient, address newRecipient);
+    event RevenueAdded(uint256 indexed channelId, uint256 amount);
+    event TokenRevenueAdded(uint256 indexed channelId, address indexed token, uint256 amount);
+    event RevenueClaimed(uint256 indexed channelId, address indexed claimer, uint256 amount);
+    event TokenRevenueClaimed(uint256 indexed channelId, address indexed claimer, address indexed token, uint256 amount);
+    event PlatformFeeUpdated(uint256 oldFee, uint256 newFee);
+    event PlatformFeeRecipientUpdated(address oldRecipient, address newRecipient);
+    event ChannelNFTUpdated(address oldAddress, address newAddress);
     
     /**
-     * @dev Constructor initializes the contract with NFT contract address and marketplace fee
+     * @dev Constructor initializes the contract with NFT contract address and platform fee
      * @param _channelNFT Address of the ChannelNFT contract
-     * @param _marketplaceFeePercentage Marketplace fee percentage in basis points
-     * @param _feeRecipient Address to receive marketplace fees
+     * @param _platformFeePercentage Platform fee percentage in basis points
+     * @param _platformFeeRecipient Address to receive platform fees
      */
     constructor(
         address _channelNFT,
-        uint256 _marketplaceFeePercentage,
-        address _feeRecipient
+        uint256 _platformFeePercentage,
+        address _platformFeeRecipient
     ) Ownable(msg.sender) {
-        require(_channelNFT != address(0), "Marketplace: zero address for channelNFT");
-        require(_feeRecipient != address(0), "Marketplace: zero address for fee recipient");
-        require(_marketplaceFeePercentage <= 1000, "Marketplace: fee too high"); // Max 10%
+        require(_channelNFT != address(0), "RevenueDistribution: zero address for channelNFT");
+        require(_platformFeeRecipient != address(0), "RevenueDistribution: zero address for fee recipient");
+        require(_platformFeePercentage <= 5000, "RevenueDistribution: fee too high"); // Max 50%
         
         channelNFT = _channelNFT;
-        marketplaceFeePercentage = _marketplaceFeePercentage;
-        feeRecipient = _feeRecipient;
-        _listingIdCounter = 1; // Start from ID 1
+        platformFeePercentage = _platformFeePercentage;
+        platformFeeRecipient = _platformFeeRecipient;
     }
     
     /**
-     * @dev Create a new listing to sell channel shares
+     * @dev Add revenue for a specific channel (native token)
      * @param channelId ID of the channel
-     * @param amount Amount of shares to sell
-     * @param pricePerShare Price per share in wei
      */
-    function createListing(
-        uint256 channelId,
-        uint256 amount,
-        uint256 pricePerShare
-    ) external nonReentrant returns (uint256) {
-        require(amount > 0, "Marketplace: amount must be greater than 0");
-        require(pricePerShare > 0, "Marketplace: price must be greater than 0");
+    function addRevenue(uint256 channelId) external payable {
+        require(msg.value > 0, "RevenueDistribution: zero value");
         
-        // Check that seller owns enough shares
-        uint256 sharesOwned = IERC1155(channelNFT).balanceOf(msg.sender, channelId);
-        require(sharesOwned >= amount, "Marketplace: not enough shares owned");
+        // Calculate platform fee
+        uint256 platformFee = (msg.value * platformFeePercentage) / 10000;
+        uint256 channelAmount = msg.value - platformFee;
         
-        // Transfer shares to marketplace
-        IERC1155(channelNFT).safeTransferFrom(msg.sender, address(this), channelId, amount, "");
+        // Transfer platform fee
+        (bool success, ) = platformFeeRecipient.call{value: platformFee}("");
+        require(success, "RevenueDistribution: platform fee transfer failed");
         
-        uint256 listingId = _listingIdCounter++;
+        // Add remaining amount to channel revenue
+        channelRevenue[channelId] += channelAmount;
         
-        listings[listingId] = Listing({
-            seller: msg.sender,
-            channelId: channelId,
-            amount: amount,
-            pricePerShare: pricePerShare,
-            listedAt: block.timestamp,
-            active: true
-        });
-        
-        _sellerListings[msg.sender].push(listingId);
-        
-        emit ListingCreated(listingId, msg.sender, channelId, amount, pricePerShare);
-        
-        return listingId;
+        emit RevenueAdded(channelId, channelAmount);
     }
     
     /**
-     * @dev Update an existing listing
-     * @param listingId ID of the listing
-     * @param newAmount New amount of shares (0 to keep current)
-     * @param newPricePerShare New price per share (0 to keep current)
+     * @dev Add ERC20 token revenue for a specific channel
+     * @param channelId ID of the channel
+     * @param token Address of the ERC20 token
+     * @param amount Amount of tokens to add as revenue
      */
-    function updateListing(
-        uint256 listingId,
-        uint256 newAmount,
-        uint256 newPricePerShare
-    ) external nonReentrant {
-        Listing storage listing = listings[listingId];
-        require(listing.seller == msg.sender, "Marketplace: not the seller");
-        require(listing.active, "Marketplace: listing not active");
+    function addTokenRevenue(uint256 channelId, address token, uint256 amount) external {
+        require(token != address(0), "RevenueDistribution: zero token address");
+        require(amount > 0, "RevenueDistribution: zero amount");
         
-        if (newAmount > 0 && newAmount != listing.amount) {
-            if (newAmount > listing.amount) {
-                // Transfer additional shares to marketplace
-                uint256 additionalAmount = newAmount - listing.amount;
-                IERC1155(channelNFT).safeTransferFrom(msg.sender, address(this), listing.channelId, additionalAmount, "");
-            } else {
-                // Return excess shares to seller
-                uint256 excessAmount = listing.amount - newAmount;
-                IERC1155(channelNFT).safeTransferFrom(address(this), msg.sender, listing.channelId, excessAmount, "");
-            }
+        // Transfer tokens from sender to this contract
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+        
+        // Calculate platform fee
+        uint256 platformFee = (amount * platformFeePercentage) / 10000;
+        uint256 channelAmount = amount - platformFee;
+        
+        // Transfer platform fee
+        if (platformFee > 0) {
+            IERC20(token).safeTransfer(platformFeeRecipient, platformFee);
+        }
+        
+        // Add token to supported tokens list if not already tracked
+        if (!isTokenTracked[channelId][token]) {
+            channelSupportedTokens[channelId].push(token);
+            isTokenTracked[channelId][token] = true;
+        }
+        
+        // Add remaining amount to channel token revenue
+        channelTokenRevenue[channelId][token] += channelAmount;
+        
+        emit TokenRevenueAdded(channelId, token, channelAmount);
+    }
+    
+    /**
+     * @dev Claim ETH revenue for a specific channel
+     * @param channelId ID of the channel
+     */
+    function claimRevenue(uint256 channelId) external {
+        address shareholder = msg.sender;
+        uint256 shares = IERC1155(channelNFT).balanceOf(shareholder, channelId);
+        require(shares > 0, "RevenueDistribution: no shares owned");
+        
+        uint256 totalShares = getTotalShares(channelId);
+        require(totalShares > 0, "RevenueDistribution: no total shares");
+        
+        uint256 totalRevenue = channelRevenue[channelId];
+        uint256 alreadyClaimed = claimedRevenue[channelId][shareholder];
+        
+        // Calculate claimable amount based on ownership percentage
+        uint256 totalClaimable = (totalRevenue * shares) / totalShares;
+        uint256 newlyClaimable = totalClaimable - alreadyClaimed;
+        
+        require(newlyClaimable > 0, "RevenueDistribution: nothing to claim");
+        
+        // Update claimed amount
+        claimedRevenue[channelId][shareholder] = totalClaimable;
+        
+        // Transfer the revenue
+        (bool success, ) = shareholder.call{value: newlyClaimable}("");
+        require(success, "RevenueDistribution: transfer failed");
+        
+        emit RevenueClaimed(channelId, shareholder, newlyClaimable);
+    }
+    
+    /**
+     * @dev Claim ERC20 token revenue for a specific channel
+     * @param channelId ID of the channel
+     * @param token Address of the ERC20 token to claim
+     */
+    function claimTokenRevenue(uint256 channelId, address token) external {
+        address shareholder = msg.sender;
+        uint256 shares = IERC1155(channelNFT).balanceOf(shareholder, channelId);
+        require(shares > 0, "RevenueDistribution: no shares owned");
+        
+        uint256 totalShares = getTotalShares(channelId);
+        require(totalShares > 0, "RevenueDistribution: no total shares");
+        
+        // Get token balance and already claimed amount
+        uint256 totalTokenRevenue = channelTokenRevenue[channelId][token];
+        uint256 alreadyClaimed = claimedTokenRevenue[channelId][shareholder][token];
+        
+        // Calculate claimable token amount
+        uint256 totalClaimable = (totalTokenRevenue * shares) / totalShares;
+        uint256 newlyClaimable = totalClaimable - alreadyClaimed;
+        
+        require(newlyClaimable > 0, "RevenueDistribution: nothing to claim");
+        
+        // Update claimed amount
+        claimedTokenRevenue[channelId][shareholder][token] = totalClaimable;
+        
+        // Transfer tokens to the shareholder
+        IERC20(token).safeTransfer(shareholder, newlyClaimable);
+        
+        emit TokenRevenueClaimed(channelId, shareholder, token, newlyClaimable);
+    }
+    
+    /**
+     * @dev Claim all ERC20 token revenue for a specific channel
+     * @param channelId ID of the channel
+     */
+    function claimAllTokenRevenue(uint256 channelId) external {
+        address shareholder = msg.sender;
+        uint256 shares = IERC1155(channelNFT).balanceOf(shareholder, channelId);
+        require(shares > 0, "RevenueDistribution: no shares owned");
+        
+        uint256 totalShares = getTotalShares(channelId);
+        require(totalShares > 0, "RevenueDistribution: no total shares");
+        
+        address[] memory tokens = channelSupportedTokens[channelId];
+        
+        bool claimedAny = false;
+        
+        for (uint256 i = 0; i < tokens.length; i++) {
+            address token = tokens[i];
             
-            listing.amount = newAmount;
+            // Get token balance and already claimed amount
+            uint256 totalTokenRevenue = channelTokenRevenue[channelId][token];
+            uint256 alreadyClaimed = claimedTokenRevenue[channelId][shareholder][token];
+            
+            // Calculate claimable token amount
+            uint256 totalClaimable = (totalTokenRevenue * shares) / totalShares;
+            uint256 newlyClaimable = totalClaimable - alreadyClaimed;
+            
+            if (newlyClaimable > 0) {
+                // Update claimed amount
+                claimedTokenRevenue[channelId][shareholder][token] = totalClaimable;
+                
+                // Transfer tokens to the shareholder
+                IERC20(token).safeTransfer(shareholder, newlyClaimable);
+                
+                emit TokenRevenueClaimed(channelId, shareholder, token, newlyClaimable);
+                
+                claimedAny = true;
+            }
         }
         
-        if (newPricePerShare > 0 && newPricePerShare != listing.pricePerShare) {
-            listing.pricePerShare = newPricePerShare;
+        require(claimedAny, "RevenueDistribution: nothing to claim");
+    }
+    
+    /**
+     * @dev Get claimable ETH revenue for a shareholder
+     * @param channelId ID of the channel
+     * @param shareholder Address of the shareholder
+     */
+    function getClaimableRevenue(uint256 channelId, address shareholder) public view returns (uint256) {
+        uint256 shares = IERC1155(channelNFT).balanceOf(shareholder, channelId);
+        if (shares == 0) return 0;
+        
+        uint256 totalShares = getTotalShares(channelId);
+        if (totalShares == 0) return 0;
+        
+        uint256 totalRevenue = channelRevenue[channelId];
+        uint256 alreadyClaimed = claimedRevenue[channelId][shareholder];
+        
+        uint256 totalClaimable = (totalRevenue * shares) / totalShares;
+        uint256 newlyClaimable = totalClaimable > alreadyClaimed ? totalClaimable - alreadyClaimed : 0;
+        
+        return newlyClaimable;
+    }
+    
+    /**
+     * @dev Get claimable token revenue for a shareholder
+     * @param channelId ID of the channel
+     * @param token Address of the ERC20 token
+     * @param shareholder Address of the shareholder
+     */
+    function getClaimableTokenRevenue(uint256 channelId, address token, address shareholder) public view returns (uint256) {
+        uint256 shares = IERC1155(channelNFT).balanceOf(shareholder, channelId);
+        if (shares == 0) return 0;
+        
+        uint256 totalShares = getTotalShares(channelId);
+        if (totalShares == 0) return 0;
+        
+        uint256 totalTokenRevenue = channelTokenRevenue[channelId][token];
+        uint256 alreadyClaimed = claimedTokenRevenue[channelId][shareholder][token];
+        
+        uint256 totalClaimable = (totalTokenRevenue * shares) / totalShares;
+        uint256 newlyClaimable = totalClaimable > alreadyClaimed ? totalClaimable - alreadyClaimed : 0;
+        
+        return newlyClaimable;
+    }
+    
+    /**
+     * @dev Get all claimable token revenues for a shareholder
+     * @param channelId ID of the channel
+     * @param shareholder Address of the shareholder
+     * @return tokens Array of token addresses
+     * @return amounts Array of claimable amounts
+     */
+    function getAllClaimableTokenRevenue(uint256 channelId, address shareholder) public view returns (address[] memory tokens, uint256[] memory amounts) {
+        address[] memory supportedTokens = channelSupportedTokens[channelId];
+        uint256[] memory claimableAmounts = new uint256[](supportedTokens.length);
+        
+        for (uint256 i = 0; i < supportedTokens.length; i++) {
+            claimableAmounts[i] = getClaimableTokenRevenue(channelId, supportedTokens[i], shareholder);
         }
         
-        emit ListingUpdated(listingId, listing.amount, listing.pricePerShare);
+        return (supportedTokens, claimableAmounts);
     }
     
     /**
-     * @dev Cancel a listing and return shares to seller
-     * @param listingId ID of the listing
+     * @dev Get total shares for a channel (helper function)
+     * @param channelId ID of the channel
      */
-    function cancelListing(uint256 listingId) external nonReentrant {
-        Listing storage listing = listings[listingId];
-        require(listing.seller == msg.sender || owner() == msg.sender, "Marketplace: not seller or owner");
-        require(listing.active, "Marketplace: listing not active");
+    function getTotalShares(uint256 channelId) public view returns (uint256) {
+        // This is a simplified approach. In production, you would get this from ChannelNFT contract
+        // Note: For this implementation, we're assuming the total shares value is stored in the Channel struct
         
-        listing.active = false;
+        // Call the ChannelNFT contract to get channel info
+        (bool success, bytes memory data) = channelNFT.staticcall(
+            abi.encodeWithSignature("getChannel(uint256)", channelId)
+        );
         
-        // Return shares to seller
-        IERC1155(channelNFT).safeTransferFrom(address(this), listing.seller, listing.channelId, listing.amount, "");
+        require(success, "RevenueDistribution: failed to get channel info");
         
-        emit ListingCancelled(listingId);
-    }
-    
-    /**
-     * @dev Purchase shares from a listing
-     * @param listingId ID of the listing
-     * @param amount Amount of shares to purchase
-     */
-    function purchaseShares(uint256 listingId, uint256 amount) external payable nonReentrant {
-        Listing storage listing = listings[listingId];
-        require(listing.active, "Marketplace: listing not active");
-        require(amount > 0 && amount <= listing.amount, "Marketplace: invalid amount");
-        
-        uint256 totalPrice = amount * listing.pricePerShare;
-        require(msg.value >= totalPrice, "Marketplace: insufficient payment");
-        
-        // Calculate marketplace fee
-        uint256 marketplaceFee = (totalPrice * marketplaceFeePercentage) / 10000;
-        uint256 sellerProceeds = totalPrice - marketplaceFee;
-        
-        // Update listing
-        listing.amount -= amount;
-        if (listing.amount == 0) {
-            listing.active = false;
+        // Extract totalShares from the returned data
+        // The data layout depends on your Channel struct in ChannelNFT
+        // Here we're assuming totalShares is the 5th element (index 4)
+        uint256 totalShares;
+        assembly {
+            // Load totalShares from data
+            // Skip first 32 bytes (data length) and 4 * 32 bytes to get to totalShares
+            totalShares := mload(add(data, 160)) // 32 + 4*32 = 160
         }
         
-        // Transfer shares to buyer
-        IERC1155(channelNFT).safeTransferFrom(address(this), msg.sender, listing.channelId, amount, "");
-        
-        // Transfer marketplace fee
-        (bool feeSuccess, ) = feeRecipient.call{value: marketplaceFee}("");
-        require(feeSuccess, "Marketplace: fee transfer failed");
-        
-        // Transfer proceeds to seller
-        (bool sellerSuccess, ) = listing.seller.call{value: sellerProceeds}("");
-        require(sellerSuccess, "Marketplace: seller transfer failed");
-        
-        // Refund excess payment
-        if (msg.value > totalPrice) {
-            (bool refundSuccess, ) = msg.sender.call{value: msg.value - totalPrice}("");
-            require(refundSuccess, "Marketplace: refund failed");
-        }
-        
-        emit SharesPurchased(listingId, msg.sender, amount, totalPrice);
+        return totalShares;
     }
     
     /**
-     * @dev Get listings by seller
-     * @param seller Address of the seller
+     * @dev Get supported tokens for a channel
+     * @param channelId ID of the channel
      */
-    function getListingsBySeller(address seller) external view returns (uint256[] memory) {
-        return _sellerListings[seller];
+    function getSupportedTokens(uint256 channelId) public view returns (address[] memory) {
+        return channelSupportedTokens[channelId];
     }
     
     /**
-     * @dev Get listing details
-     * @param listingId ID of the listing
+     * @dev Set the platform fee percentage
+     * @param _platformFeePercentage New platform fee percentage
      */
-    function getListing(uint256 listingId) external view returns (Listing memory) {
-        return listings[listingId];
+    function setPlatformFeePercentage(uint256 _platformFeePercentage) external onlyOwner {
+        require(_platformFeePercentage <= 5000, "RevenueDistribution: fee too high"); // Max 50%
+        
+        uint256 oldFee = platformFeePercentage;
+        platformFeePercentage = _platformFeePercentage;
+        
+        emit PlatformFeeUpdated(oldFee, _platformFeePercentage);
     }
     
     /**
-     * @dev Set the marketplace fee percentage
-     * @param _marketplaceFeePercentage New marketplace fee percentage
+     * @dev Set the platform fee recipient
+     * @param _platformFeeRecipient New platform fee recipient
      */
-    function setMarketplaceFeePercentage(uint256 _marketplaceFeePercentage) external onlyOwner {
-        require(_marketplaceFeePercentage <= 1000, "Marketplace: fee too high"); // Max 10%
+    function setPlatformFeeRecipient(address _platformFeeRecipient) external onlyOwner {
+        require(_platformFeeRecipient != address(0), "RevenueDistribution: zero address");
         
-        uint256 oldFee = marketplaceFeePercentage;
-        marketplaceFeePercentage = _marketplaceFeePercentage;
+        address oldRecipient = platformFeeRecipient;
+        platformFeeRecipient = _platformFeeRecipient;
         
-        emit MarketplaceFeeUpdated(oldFee, _marketplaceFeePercentage);
+        emit PlatformFeeRecipientUpdated(oldRecipient, _platformFeeRecipient);
     }
     
     /**
-     * @dev Set the fee recipient
-     * @param _feeRecipient New fee recipient
+     * @dev Set the ChannelNFT contract address
+     * @param _channelNFT New ChannelNFT address
      */
-    function setFeeRecipient(address _feeRecipient) external onlyOwner {
-        require(_feeRecipient != address(0), "Marketplace: zero address");
+    function setChannelNFT(address _channelNFT) external onlyOwner {
+        require(_channelNFT != address(0), "RevenueDistribution: zero address");
         
-        address oldRecipient = feeRecipient;
-        feeRecipient = _feeRecipient;
+        address oldAddress = channelNFT;
+        channelNFT = _channelNFT;
         
-        emit FeeRecipientUpdated(oldRecipient, _feeRecipient);
+        emit ChannelNFTUpdated(oldAddress, _channelNFT);
     }
     
     /**
-     * @dev Get total listings count
+     * @dev Receive function to accept ETH
      */
-    function getTotalListingsCount() external view returns (uint256) {
-        return _listingIdCounter - 1;
-    }
+    receive() external payable {}
 }

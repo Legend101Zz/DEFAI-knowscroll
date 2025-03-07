@@ -6,10 +6,26 @@ import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+// Interface for interacting with ChannelNFT contract
+interface IChannelNFT {
+    struct Channel {
+        string name;
+        string description;
+        string category;
+        address creator;
+        uint256 totalShares;
+        uint256 createdAt;
+        bool active;
+    }
+    
+    function getChannel(uint256 channelId) external view returns (Channel memory);
+    function getTotalShares(uint256 channelId) external view returns (uint256);
+}
+
 /**
  * @title RevenueDistribution
  * @dev Contract for distributing revenue to channel owners
- * based on their fractional ownership
+ * based on their fractional ownership with improved token support
  */
 contract RevenueDistribution is Ownable {
     using SafeERC20 for IERC20;
@@ -23,15 +39,29 @@ contract RevenueDistribution is Ownable {
     // Platform fee recipient
     address public platformFeeRecipient;
     
-    // Mapping from channelId to accumulated revenue for that channel
+    // Mapping from channelId to accumulated ETH revenue for that channel
     mapping(uint256 => uint256) public channelRevenue;
     
-    // Mapping from channelId to mapping from shareHolder to claimed revenue
+    // Mapping from channelId to mapping from shareHolder to claimed ETH revenue
     mapping(uint256 => mapping(address => uint256)) public claimedRevenue;
+    
+    // Token balance tracking - mapping from channelId to token address to amount
+    mapping(uint256 => mapping(address => uint256)) public channelTokenRevenue;
+    
+    // Token claimed tracking - mapping from channelId to shareholder to token address to claimed amount
+    mapping(uint256 => mapping(address => mapping(address => uint256))) public claimedTokenRevenue;
+    
+    // Array to track supported tokens for a channel
+    mapping(uint256 => address[]) public channelSupportedTokens;
+    
+    // Mapping to check if a token is already tracked for a channel
+    mapping(uint256 => mapping(address => bool)) private isTokenTracked;
     
     // Events
     event RevenueAdded(uint256 indexed channelId, uint256 amount);
+    event TokenRevenueAdded(uint256 indexed channelId, address indexed token, uint256 amount);
     event RevenueClaimed(uint256 indexed channelId, address indexed claimer, uint256 amount);
+    event TokenRevenueClaimed(uint256 indexed channelId, address indexed claimer, address indexed token, uint256 amount);
     event PlatformFeeUpdated(uint256 oldFee, uint256 newFee);
     event PlatformFeeRecipientUpdated(address oldRecipient, address newRecipient);
     event ChannelNFTUpdated(address oldAddress, address newAddress);
@@ -99,15 +129,20 @@ contract RevenueDistribution is Ownable {
             IERC20(token).safeTransfer(platformFeeRecipient, platformFee);
         }
         
-        // Add remaining amount to channel revenue
-        // Note: In a production setting, we would use a mapping for each token type
-        channelRevenue[channelId] += channelAmount;
+        // Add token to supported tokens list if not already tracked
+        if (!isTokenTracked[channelId][token]) {
+            channelSupportedTokens[channelId].push(token);
+            isTokenTracked[channelId][token] = true;
+        }
         
-        emit RevenueAdded(channelId, channelAmount);
+        // Add remaining amount to channel token revenue
+        channelTokenRevenue[channelId][token] += channelAmount;
+        
+        emit TokenRevenueAdded(channelId, token, channelAmount);
     }
     
     /**
-     * @dev Claim revenue for a specific channel
+     * @dev Claim ETH revenue for a specific channel
      * @param channelId ID of the channel
      */
     function claimRevenue(uint256 channelId) external {
@@ -138,7 +173,82 @@ contract RevenueDistribution is Ownable {
     }
     
     /**
-     * @dev Get claimable revenue for a shareholder
+     * @dev Claim ERC20 token revenue for a specific channel
+     * @param channelId ID of the channel
+     * @param token Address of the ERC20 token to claim
+     */
+    function claimTokenRevenue(uint256 channelId, address token) external {
+        address shareholder = msg.sender;
+        uint256 shares = IERC1155(channelNFT).balanceOf(shareholder, channelId);
+        require(shares > 0, "RevenueDistribution: no shares owned");
+        
+        uint256 totalShares = getTotalShares(channelId);
+        require(totalShares > 0, "RevenueDistribution: no total shares");
+        
+        // Get token balance and already claimed amount
+        uint256 totalTokenRevenue = channelTokenRevenue[channelId][token];
+        uint256 alreadyClaimed = claimedTokenRevenue[channelId][shareholder][token];
+        
+        // Calculate claimable token amount
+        uint256 totalClaimable = (totalTokenRevenue * shares) / totalShares;
+        uint256 newlyClaimable = totalClaimable - alreadyClaimed;
+        
+        require(newlyClaimable > 0, "RevenueDistribution: nothing to claim");
+        
+        // Update claimed amount
+        claimedTokenRevenue[channelId][shareholder][token] = totalClaimable;
+        
+        // Transfer tokens to the shareholder
+        IERC20(token).safeTransfer(shareholder, newlyClaimable);
+        
+        emit TokenRevenueClaimed(channelId, shareholder, token, newlyClaimable);
+    }
+    
+    /**
+     * @dev Claim all ERC20 token revenue for a specific channel
+     * @param channelId ID of the channel
+     */
+    function claimAllTokenRevenue(uint256 channelId) external {
+        address shareholder = msg.sender;
+        uint256 shares = IERC1155(channelNFT).balanceOf(shareholder, channelId);
+        require(shares > 0, "RevenueDistribution: no shares owned");
+        
+        uint256 totalShares = getTotalShares(channelId);
+        require(totalShares > 0, "RevenueDistribution: no total shares");
+        
+        address[] memory tokens = channelSupportedTokens[channelId];
+        
+        bool claimedAny = false;
+        
+        for (uint256 i = 0; i < tokens.length; i++) {
+            address token = tokens[i];
+            
+            // Get token balance and already claimed amount
+            uint256 totalTokenRevenue = channelTokenRevenue[channelId][token];
+            uint256 alreadyClaimed = claimedTokenRevenue[channelId][shareholder][token];
+            
+            // Calculate claimable token amount
+            uint256 totalClaimable = (totalTokenRevenue * shares) / totalShares;
+            uint256 newlyClaimable = totalClaimable - alreadyClaimed;
+            
+            if (newlyClaimable > 0) {
+                // Update claimed amount
+                claimedTokenRevenue[channelId][shareholder][token] = totalClaimable;
+                
+                // Transfer tokens to the shareholder
+                IERC20(token).safeTransfer(shareholder, newlyClaimable);
+                
+                emit TokenRevenueClaimed(channelId, shareholder, token, newlyClaimable);
+                
+                claimedAny = true;
+            }
+        }
+        
+        require(claimedAny, "RevenueDistribution: nothing to claim");
+    }
+    
+    /**
+     * @dev Get claimable ETH revenue for a shareholder
      * @param channelId ID of the channel
      * @param shareholder Address of the shareholder
      */
@@ -159,31 +269,66 @@ contract RevenueDistribution is Ownable {
     }
     
     /**
+     * @dev Get claimable token revenue for a shareholder
+     * @param channelId ID of the channel
+     * @param token Address of the ERC20 token
+     * @param shareholder Address of the shareholder
+     */
+    function getClaimableTokenRevenue(uint256 channelId, address token, address shareholder) public view returns (uint256) {
+        uint256 shares = IERC1155(channelNFT).balanceOf(shareholder, channelId);
+        if (shares == 0) return 0;
+        
+        uint256 totalShares = getTotalShares(channelId);
+        if (totalShares == 0) return 0;
+        
+        uint256 totalTokenRevenue = channelTokenRevenue[channelId][token];
+        uint256 alreadyClaimed = claimedTokenRevenue[channelId][shareholder][token];
+        
+        uint256 totalClaimable = (totalTokenRevenue * shares) / totalShares;
+        uint256 newlyClaimable = totalClaimable > alreadyClaimed ? totalClaimable - alreadyClaimed : 0;
+        
+        return newlyClaimable;
+    }
+    
+    /**
+     * @dev Get all claimable token revenues for a shareholder
+     * @param channelId ID of the channel
+     * @param shareholder Address of the shareholder
+     * @return tokens Array of token addresses
+     * @return amounts Array of claimable amounts
+     */
+    function getAllClaimableTokenRevenue(uint256 channelId, address shareholder) public view returns (address[] memory tokens, uint256[] memory amounts) {
+        address[] memory supportedTokens = channelSupportedTokens[channelId];
+        uint256[] memory claimableAmounts = new uint256[](supportedTokens.length);
+        
+        for (uint256 i = 0; i < supportedTokens.length; i++) {
+            claimableAmounts[i] = getClaimableTokenRevenue(channelId, supportedTokens[i], shareholder);
+        }
+        
+        return (supportedTokens, claimableAmounts);
+    }
+    
+    /**
      * @dev Get total shares for a channel (helper function)
      * @param channelId ID of the channel
      */
     function getTotalShares(uint256 channelId) public view returns (uint256) {
-        // This is a simplified approach. In production, you would get this from ChannelNFT contract
-        // Note: For this implementation, we're assuming the total shares value is stored in the Channel struct
-        
-        // Call the ChannelNFT contract to get channel info
-        (bool success, bytes memory data) = channelNFT.staticcall(
-            abi.encodeWithSignature("getChannel(uint256)", channelId)
-        );
-        
-        require(success, "RevenueDistribution: failed to get channel info");
-        
-        // Extract totalShares from the returned data
-        // The data layout depends on your Channel struct in ChannelNFT
-        // Here we're assuming totalShares is the 5th element (index 4)
-        uint256 totalShares;
-        assembly {
-            // Load totalShares from data
-            // Skip first 32 bytes (data length) and 4 * 32 bytes to get to totalShares
-            totalShares := mload(add(data, 160)) // 32 + 4*32 = 160
+        // Try using the direct getTotalShares function if it exists
+        try IChannelNFT(channelNFT).getTotalShares(channelId) returns (uint256 shares) {
+            return shares;
+        } catch {
+            // Fallback to getting totalShares from the Channel struct
+            IChannelNFT.Channel memory channel = IChannelNFT(channelNFT).getChannel(channelId);
+            return channel.totalShares;
         }
-        
-        return totalShares;
+    }
+    
+    /**
+     * @dev Get supported tokens for a channel
+     * @param channelId ID of the channel
+     */
+    function getSupportedTokens(uint256 channelId) public view returns (address[] memory) {
+        return channelSupportedTokens[channelId];
     }
     
     /**

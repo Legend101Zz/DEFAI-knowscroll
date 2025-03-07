@@ -6,6 +6,13 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
 import "@openzeppelin/contracts/utils/Strings.sol";
 
+// Interface for interacting with RevenueDistribution contract
+interface IRevenueDistribution {
+    function addRevenue(uint256 channelId) external payable;
+    function claimRevenue(uint256 channelId) external;
+    function getClaimableRevenue(uint256 channelId, address shareholder) external view returns (uint256);
+}
+
 /**
  * @title ChannelNFT
  * @dev Contract for fractional ownership of AI content channels 
@@ -143,6 +150,27 @@ contract ChannelNFT is ERC1155, ERC1155Supply, Ownable {
         return _channelIdCounter - 1;
     }
     
+    /**
+     * @dev Helper function to get the total shares for a specific channel
+     * @param channelId ID of the channel
+     */
+    function getTotalShares(uint256 channelId) public view returns (uint256) {
+        require(channelId < _channelIdCounter, "ChannelNFT: channel does not exist");
+        return channels[channelId].totalShares;
+    }
+    
+    /**
+     * @dev Direct way to add revenue to a channel (forwards to RevenueDistribution contract)
+     * @param revenueContract Address of the RevenueDistribution contract
+     * @param channelId ID of the channel
+     */
+    function addRevenue(address revenueContract, uint256 channelId) external payable {
+        require(revenueContract != address(0), "ChannelNFT: zero address for revenue contract");
+        require(msg.value > 0, "ChannelNFT: zero value");
+        
+        IRevenueDistribution(revenueContract).addRevenue{value: msg.value}(channelId);
+    }
+    
     // Override _update function to resolve the conflict between ERC1155 and ERC1155Supply
     function _update(
         address from,
@@ -153,7 +181,6 @@ contract ChannelNFT is ERC1155, ERC1155Supply, Ownable {
         super._update(from, to, ids, values);
         
         // Emit transfer event for each channel ID
-        // Moving this logic from _beforeTokenTransfer to _update as per OpenZeppelin's latest architecture
         for (uint256 i = 0; i < ids.length; i++) {
             if (from != address(0) && to != address(0)) {
                 emit SharesTransferred(ids[i], from, to, values[i]);
