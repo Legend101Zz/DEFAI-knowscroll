@@ -4,6 +4,22 @@ pragma solidity ^0.8.26;
 import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
+// Interface for interacting with ChannelNFT contract
+interface IChannelNFT {
+    struct Channel {
+        string name;
+        string description;
+        string category;
+        address creator;
+        uint256 totalShares;
+        uint256 createdAt;
+        bool active;
+    }
+    
+    function getChannel(uint256 channelId) external view returns (Channel memory);
+    function getTotalShares(uint256 channelId) external view returns (uint256);
+}
+
 /**
  * @title Governance
  * @dev Contract for channel governance through stakeholder voting
@@ -95,13 +111,13 @@ contract Governance is Ownable {
         require(bytes(contentUri).length > 0, "Governance: empty contentUri");
         require(votingPeriod >= minVotingPeriod, "Governance: voting period too short");
         
+        // Get total shares for channel - do this first to check if channel exists
+        uint256 totalShares = getTotalShares(channelId);
+        require(totalShares > 0, "Governance: no total shares");
+        
         // Get proposer's share balance
         uint256 shares = IERC1155(channelNFT).balanceOf(msg.sender, channelId);
         require(shares > 0, "Governance: no shares owned");
-        
-        // Get total shares for channel
-        uint256 totalShares = getTotalShares(channelId);
-        require(totalShares > 0, "Governance: no total shares");
         
         // Check if proposer meets threshold
         uint256 proposerPercentage = (shares * 10000) / totalShares;
@@ -243,25 +259,17 @@ contract Governance is Ownable {
      * @param channelId ID of the channel
      */
     function getTotalShares(uint256 channelId) public view returns (uint256) {
-        // This is a simplified approach. In production, you would get this from ChannelNFT contract
-        // Call the ChannelNFT contract to get channel info
-        (bool success, bytes memory data) = channelNFT.staticcall(
-            abi.encodeWithSignature("getChannel(uint256)", channelId)
-        );
-        
-        require(success, "Governance: failed to get channel info");
-        
-        // Extract totalShares from the returned data
-        // The data layout depends on your Channel struct in ChannelNFT
-        // Here we're assuming totalShares is the 5th element (index 4)
-        uint256 totalShares;
-        assembly {
-            // Load totalShares from data
-            // Skip first 32 bytes (data length) and 4 * 32 bytes to get to totalShares
-            totalShares := mload(add(data, 160)) // 32 + 4*32 = 160
+        // Try using the direct getTotalShares function if it exists
+        try IChannelNFT(channelNFT).getTotalShares(channelId) returns (uint256 shares) {
+            return shares;
+        } catch {
+            // Fallback to getting totalShares from the Channel struct
+            try IChannelNFT(channelNFT).getChannel(channelId) returns (IChannelNFT.Channel memory channel) {
+                return channel.totalShares;
+            } catch {
+                return 0; // Channel doesn't exist or can't be accessed
+            }
         }
-        
-        return totalShares;
     }
     
     /**
