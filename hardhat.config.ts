@@ -1,5 +1,8 @@
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
+import "@nomicfoundation/hardhat-ethers";
+import "@nomicfoundation/hardhat-chai-matchers";
+import "@typechain/hardhat";
 import "@nomicfoundation/hardhat-verify";
 import * as dotenv from "dotenv";
 
@@ -14,6 +17,10 @@ const config: HardhatUserConfig = {
         runs: 200,
       },
     },
+  },
+  typechain: {
+    outDir: "typechain-types",
+    target: "ethers-v6",
   },
   networks: {
     sonic: {
@@ -39,8 +46,9 @@ const config: HardhatUserConfig = {
   },
   etherscan: {
     apiKey: {
-      sonic: "YOUR_SONICSCAN_API_KEY",
-      sonicTestnet: "YOUR_SONICSCAN_API_KEY",
+      sonic: process.env.SONICSCAN_API_KEY || "YOUR_SONICSCAN_API_KEY",
+      sonicTestnet:
+        process.env.SONICSCAN_TESTNET_API_KEY || "YOUR_SONICSCAN_API_KEY",
     },
     customChains: [
       {
