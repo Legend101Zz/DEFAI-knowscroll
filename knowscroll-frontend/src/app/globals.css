@@ -161,3 +161,83 @@ body {
 .control-btn:hover {
   transform: scale(1.1);
 }
+
+.shadow-glow:hover {
+  box-shadow: 0 0 20px rgba(55, 232, 255, 0.5);
+}
+
+.text-gradient {
+  background: linear-gradient(to right, #37e8ff, #ff3d8a);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+@media (max-width: 640px) {
+  .content-card {
+    min-height: 300px;
+  }
+}
+
+/* Hide scrollbars but keep functionality */
+.hide-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}
+
+@keyframes fadeOut {
+  0% {
+    opacity: 0.7;
+  }
+  70% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.animate-fadeOut {
+  animation: fadeOut 3s ease-out forwards;
+}
+
+.progress-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #37e8ff, #ff3d8a);
+  box-shadow: 0 0 10px rgba(55, 232, 255, 0.7);
+  transition: width 0.1s ease-out;
+}
+
+.content-card {
+  background-color: rgba(15, 15, 20, 0.7);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Improve tap feedback on mobile */
+@media (max-width: 768px) {
+  .control-btn:active {
+    transform: scale(0.95);
+  }
+}
+
+/* Hide scrollbars but keep functionality */
+.hide-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}

@@ -1,9 +1,16 @@
 "use client";
 
-import { useState} from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useWallet } from '@/context/WalletContext';
 import Link from 'next/link';
 import Image from 'next/image';
+import { useSwipe } from '@/hooks/useSwipe';
+import dynamic from 'next/dynamic';
+
+// Dynamically import the video component with SSR disabled
+const VideoPlayer = dynamic(() => import('@/components/content/VideoPlayer'), {
+    ssr: false,
+});
 
 // Types for our content
 type Series = {
@@ -11,7 +18,7 @@ type Series = {
     title: string;
     category: string;
     episodes: Episode[];
-    currentEpisode: number;
+    currentEpisodeIndex: number;
 };
 
 type Episode = {
@@ -20,153 +27,637 @@ type Episode = {
     description: string;
     progress: number; // 0-100
     imageSrc: string;
+    videoSrc?: string; // Optional video source
     channelId: number;
     channelName: string;
+    duration: number; // Duration in seconds
+    likes: number;
+    views: number;
 };
 
 export default function ExplorePage() {
     const { isConnected } = useWallet();
     const [activeIndex, setActiveIndex] = useState(1); // Center card is active
-    const [isPlaying, setIsPlaying] = useState(false);
+    const [isPlaying, setIsPlaying] = useState(true); // Auto-play by default
+    const [currentProgress, setCurrentProgress] = useState(0);
+    const [showFullContent, setShowFullContent] = useState(false);
+    const [playbackSpeed, setPlaybackSpeed] = useState(1);
+    const [userLikes, setUserLikes] = useState<{ [key: string]: boolean }>({});
+    const [userSaves, setUserSaves] = useState<{ [key: string]: boolean }>({});
+    const progressTimer = useRef<NodeJS.Timeout | null>(null);
+    const [isMobileView, setIsMobileView] = useState(false);
+    const [showInfo, setShowInfo] = useState(true);
 
-    // Sample data - this would come from your API or blockchain in production
+    // Sample data with enhanced metadata
     const seriesData: Series[] = [
         {
             id: "technology",
-            title: "Technology",
-            category: "Future Tech",
-            currentEpisode: 5,
+            title: "Future Tech",
+            category: "Technology",
+            currentEpisodeIndex: 0,
             episodes: [
                 {
                     id: 1,
-                    title: "Space Tech",
-                    description: "The origins of space technology can be traced back...",
-                    progress: 65,
+                    title: "Space Tech Revolution",
+                    description: "The origins of space technology can be traced back to the early 20th century, but recent advancements have accelerated our capacity for space exploration. Private companies are now leading innovations in reusable rockets, satellite technology, and plans for Mars colonization.",
+                    progress: 0,
                     imageSrc: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=500",
+                    videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
                     channelId: 1,
-                    channelName: "Tech Channel"
+                    channelName: "Future Tech Channel",
+                    duration: 60,
+                    likes: 1324,
+                    views: 24850
+                },
+                {
+                    id: 2,
+                    title: "AI in Everyday Life",
+                    description: "Artificial intelligence has rapidly integrated into our daily lives, from voice assistants to content recommendations. This episode explores how machine learning algorithms have evolved and what the future of AI might look like in healthcare, transportation, and creative industries.",
+                    progress: 0,
+                    imageSrc: "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=500",
+                    videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+                    channelId: 1,
+                    channelName: "Future Tech Channel",
+                    duration: 45,
+                    likes: 983,
+                    views: 18792
                 }
             ]
         },
         {
             id: "worldwar2",
-            title: "World War 2",
+            title: "World War II",
             category: "History",
-            currentEpisode: 3,
+            currentEpisodeIndex: 0,
             episodes: [
                 {
                     id: 1,
                     title: "Origins of WWII",
-                    description: "The origins of World War II can be traced back to the harsh Treaty of Versailles...",
-                    progress: 50,
+                    description: "The origins of World War II can be traced back to the harsh Treaty of Versailles that ended World War I. This treaty imposed severe economic sanctions on Germany and required the country to accept responsibility for the war. The Great Depression further destabilized Europe, creating conditions that allowed the Nazi Party to rise to power.",
+                    progress: 0,
                     imageSrc: "https://images.unsplash.com/photo-1579373903781-fd5c0c30c4cd?q=80&w=500",
+                    videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
                     channelId: 2,
-                    channelName: "History Channel"
+                    channelName: "History Channel",
+                    duration: 75,
+                    likes: 2456,
+                    views: 52103
+                },
+                {
+                    id: 2,
+                    title: "The Pacific Theater",
+                    description: "The Pacific War was the theater of World War II fought in the Pacific and East Asia. It began with Japan's attack on Pearl Harbor on December 7, 1941, and concluded with Japan's surrender to the Allies on September 2, 1945, which brought the war to an end.",
+                    progress: 0,
+                    imageSrc: "https://images.unsplash.com/photo-1604918898611-3e1ec2f3d77c?q=80&w=500",
+                    videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+                    channelId: 2,
+                    channelName: "History Channel",
+                    duration: 65,
+                    likes: 1876,
+                    views: 43290
                 }
             ]
         },
         {
             id: "space",
             title: "Space Exploration",
-            category: "History",
-            currentEpisode: 4,
+            category: "Science",
+            currentEpisodeIndex: 0,
             episodes: [
                 {
                     id: 1,
-                    title: "Space Race",
-                    description: "The Space Race was a competition between the US and USSR...",
-                    progress: 80,
+                    title: "The Space Race",
+                    description: "The Space Race was a competition between the United States and the Soviet Union starting in the 1950s. Both nations sought to demonstrate technological superiority through achievements in spaceflight, culminating in the historic Apollo moon landing in 1969.",
+                    progress: 0,
                     imageSrc: "https://images.unsplash.com/photo-1454789548928-9efd52dc4031?q=80&w=500",
+                    videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
                     channelId: 3,
-                    channelName: "Space Channel"
+                    channelName: "Space Channel",
+                    duration: 55,
+                    likes: 3245,
+                    views: 78465
+                },
+                {
+                    id: 2,
+                    title: "Mars: The Next Frontier",
+                    description: "As humans look beyond Earth, Mars has emerged as our most promising destination for colonization. This episode explores the challenges of Mars missions, from the harsh environment to the technological hurdles of getting there and sustaining human life.",
+                    progress: 0,
+                    imageSrc: "https://images.unsplash.com/photo-1614728263952-84ea256f9679?q=80&w=500",
+                    videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+                    channelId: 3,
+                    channelName: "Space Channel",
+                    duration: 60,
+                    likes: 2198,
+                    views: 58741
                 }
             ]
         }
     ];
 
+    // Format numbers for display (e.g., 1.2k instead of 1200)
+    const formatNumber = (num: number): string => {
+        if (num >= 1000000) {
+            return (num / 1000000).toFixed(1) + 'M';
+        } else if (num >= 1000) {
+            return (num / 1000).toFixed(1) + 'K';
+        } else {
+            return num.toString();
+        }
+    };
+
+    // Get the active series and episode
+    const activeSeries = seriesData[activeIndex];
+    const activeEpisode = activeSeries.episodes[activeSeries.currentEpisodeIndex];
+
+    // Check for mobile viewport on component mount
+    useEffect(() => {
+        const checkMobile = () => {
+            setIsMobileView(window.innerWidth <= 768);
+        };
+
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+
+        return () => {
+            window.removeEventListener('resize', checkMobile);
+        };
+    }, []);
+
+    // Swipe handler functions
+    const handleSwipeUp = () => {
+        setShowFullContent(true);
+    };
+
+    const handleSwipeDown = () => {
+        if (showFullContent) {
+            setShowFullContent(false);
+        } else {
+            goToPrevEpisodeInSeries();
+        }
+    };
+
+    const handleSwipeLeft = () => {
+        navigateNext();
+    };
+
+    const handleSwipeRight = () => {
+        navigatePrev();
+    };
+
+    // Register swipe handlers
+    useSwipe({
+        onSwipeUp: handleSwipeUp,
+        onSwipeDown: handleSwipeDown,
+        onSwipeLeft: handleSwipeLeft,
+        onSwipeRight: handleSwipeRight
+    });
+
+    // Toggle play/pause
     const handlePlay = () => {
         setIsPlaying(!isPlaying);
     };
 
+    // Navigate to next series
     const navigateNext = () => {
-        setActiveIndex((prev) => (prev === 2 ? 0 : prev + 1));
+        setActiveIndex((prev) => (prev === seriesData.length - 1 ? 0 : prev + 1));
     };
 
+    // Navigate to previous series
     const navigatePrev = () => {
-        setActiveIndex((prev) => (prev === 0 ? 2 : prev - 1));
+        setActiveIndex((prev) => (prev === 0 ? seriesData.length - 1 : prev - 1));
+    };
+
+    // Go to next episode in the current series
+    const goToNextEpisodeInSeries = () => {
+        const series = activeSeries;
+
+        if (series.currentEpisodeIndex < series.episodes.length - 1) {
+            const newSeriesData = [...seriesData];
+            newSeriesData[activeIndex].currentEpisodeIndex += 1;
+            setCurrentProgress(0);
+        }
+    };
+
+    // Go to previous episode in the current series
+    const goToPrevEpisodeInSeries = () => {
+        const series = activeSeries;
+
+        if (series.currentEpisodeIndex > 0) {
+            const newSeriesData = [...seriesData];
+            newSeriesData[activeIndex].currentEpisodeIndex -= 1;
+            setCurrentProgress(0);
+        }
+    };
+
+    // Handle speed change
+    const handleSpeedChange = () => {
+        const speeds = [0.5, 1, 1.5, 2];
+        const currentIndex = speeds.indexOf(playbackSpeed);
+        const nextIndex = (currentIndex + 1) % speeds.length;
+
+        setPlaybackSpeed(speeds[nextIndex]);
+    };
+
+    // Handle like action
+    const handleLike = (seriesId: string, episodeId: number) => {
+        const key = `${seriesId}-${episodeId}`;
+        setUserLikes(prev => ({
+            ...prev,
+            [key]: !prev[key]
+        }));
+    };
+
+    // Handle save action
+    const handleSave = (seriesId: string, episodeId: number) => {
+        const key = `${seriesId}-${episodeId}`;
+        setUserSaves(prev => ({
+            ...prev,
+            [key]: !prev[key]
+        }));
+    };
+
+    // Handle video progress updates
+    const handleVideoProgress = (progress: number) => {
+        setCurrentProgress(progress);
+    };
+
+    // Toggle info overlay
+    const toggleInfo = () => {
+        setShowInfo(!showInfo);
     };
 
     return (
-        <div className="min-h-screen bg-[#121218] text-white">
-            {/* Top navigation bar */}
-            <div className="p-4 pt-8">
-                <h1 className="text-xl font-bold text-center mb-2">Multi-Directional Swipe</h1>
-                <div className="flex justify-between items-center mb-4">
-                    <div className="text-sm text-[#37E8FF]">Swipe Up/Down</div>
-                    <div className="h-[2px] flex-1 mx-4 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A]">
-                        <div className="h-full w-1/3 bg-white rounded-full"></div>
-                    </div>
-                    <div className="text-sm text-[#FF3D8A]">Swipe Left/Right</div>
+        <div className="min-h-screen bg-[#121218] text-white overflow-hidden">
+            {/* App header */}
+            <div className="p-4 pt-6 bg-gradient-to-b from-[#121218] to-transparent fixed top-0 left-0 right-0 z-30">
+                <div className="flex justify-between items-center">
+                    <Link href="/" className="text-xl font-bold text-[#37E8FF]">
+                        KnowScroll
+                    </Link>
+
+                    {isConnected ? (
+                        <div className="bg-[#1A1A24]/70 px-3 py-1 rounded-full text-sm flex items-center">
+                            <div className="w-2 h-2 rounded-full bg-[#37E8FF] mr-2"></div>
+                            <span>Connected</span>
+                        </div>
+                    ) : (
+                        <button className="bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white px-3 py-1 rounded-full text-sm">
+                            Connect
+                        </button>
+                    )}
                 </div>
             </div>
 
             {/* Main content area */}
-            <div className="relative px-4">
-                {/* Cards container */}
-                <div className="flex justify-between space-x-3 mb-8">
-                    {seriesData.map((series, index) => {
-                        const episode = series.episodes[0]; // Get first episode of series
-                        return (
-                            <div
-                                key={series.id}
-                                className={`content-card flex-1 relative ${index === activeIndex ? 'scale-100 opacity-100 z-10' : 'scale-90 opacity-70'
-                                    } transition-all duration-300`}
-                            >
-                                {/* Card image */}
-                                <div className="relative h-[340px] w-full overflow-hidden">
-                                    <Image
-                                        src={episode.imageSrc}
-                                        alt={episode.title}
-                                        fill
-                                        style={{ objectFit: 'cover' }}
-                                        className="brightness-75"
-                                    />
+            <div className="relative min-h-screen w-full flex items-center justify-center pt-16 pb-20">
+                {/* Cards container - for desktop */}
+                {!isMobileView && (
+                    <div className="flex justify-between space-x-4 w-full max-w-[1100px] h-[80vh]">
+                        {seriesData.map((series, index) => {
+                            const episode = series.episodes[series.currentEpisodeIndex];
+                            const isActive = index === activeIndex;
+                            const likeKey = `${series.id}-${episode.id}`;
+                            const isLiked = userLikes[likeKey] || false;
+
+                            return (
+                                <div
+                                    key={series.id}
+                                    className={`content-card flex-1 relative rounded-xl overflow-hidden shadow-lg
+                                        ${isActive
+                                            ? 'scale-100 opacity-100 z-10 border-2 border-[#37E8FF]/30'
+                                            : 'scale-90 opacity-50 cursor-pointer'
+                                        }
+                                        transition-all duration-300`}
+                                    onClick={() => !isActive && setActiveIndex(index)}
+                                >
+                                    {/* Card image or video */}
+                                    <div className="relative h-full w-full overflow-hidden">
+                                        {/* Show image by default */}
+                                        {!isActive || !isPlaying ? (
+                                            <Image
+                                                src={episode.imageSrc}
+                                                alt={episode.title}
+                                                fill
+                                                priority={isActive}
+                                                sizes="(max-width: 768px) 100vw, 33vw"
+                                                style={{ objectFit: 'cover' }}
+                                                className="brightness-75"
+                                            />
+                                        ) : null}
+
+                                        {/* Show video when playing and this is the active card */}
+                                        {isActive && (
+                                            <div className="absolute inset-0">
+                                                <VideoPlayer
+                                                    src={episode.videoSrc}
+                                                    isPlaying={isPlaying}
+                                                    onTimeUpdate={handleVideoProgress}
+                                                    className="h-full w-full object-cover"
+                                                    poster={episode.imageSrc}
+                                                    autoplay={true}
+                                                />
+                                            </div>
+                                        )}
+
+                                        {/* Gradient overlay */}
+                                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none"></div>
+                                    </div>
+
+                                    {/* Reel controls overlay - only on active card */}
+                                    {isActive && (
+                                        <div className="absolute right-4 bottom-32 flex flex-col items-center space-y-6">
+                                            {/* Like button */}
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleLike(series.id, episode.id);
+                                                }}
+                                                className="flex flex-col items-center"
+                                            >
+                                                <div className={`w-12 h-12 rounded-full ${isLiked ? 'bg-[#FF3D8A]/30' : 'bg-black/40'} backdrop-blur-sm flex items-center justify-center`}>
+                                                    <svg className={`w-6 h-6 ${isLiked ? 'text-[#FF3D8A]' : 'text-white'}`} fill={isLiked ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                                                    </svg>
+                                                </div>
+                                                <span className="text-xs mt-1">{formatNumber(episode.likes + (isLiked ? 1 : 0))}</span>
+                                            </button>
+
+                                            {/* Comment button */}
+                                            <button className="flex flex-col items-center">
+                                                <div className="w-12 h-12 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                                                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                                                    </svg>
+                                                </div>
+                                                <span className="text-xs mt-1">Comment</span>
+                                            </button>
+
+                                            {/* Save button */}
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleSave(series.id, episode.id);
+                                                }}
+                                                className="flex flex-col items-center"
+                                            >
+                                                <div className={`w-12 h-12 rounded-full ${userSaves[likeKey] ? 'bg-[#37E8FF]/30' : 'bg-black/40'} backdrop-blur-sm flex items-center justify-center`}>
+                                                    <svg className={`w-6 h-6 ${userSaves[likeKey] ? 'text-[#37E8FF]' : 'text-white'}`} fill={userSaves[likeKey] ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                                                    </svg>
+                                                </div>
+                                                <span className="text-xs mt-1">Save</span>
+                                            </button>
+
+                                            {/* Speed control */}
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleSpeedChange();
+                                                }}
+                                                className="flex flex-col items-center"
+                                            >
+                                                <div className="w-12 h-12 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                                                    <span className="text-white font-medium">{playbackSpeed}x</span>
+                                                </div>
+                                                <span className="text-xs mt-1">Speed</span>
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Card content */}
+                                    {(showInfo || !isActive || !isPlaying) && (
+                                        <div className="absolute bottom-0 left-0 right-0 p-5">
+                                            <div className="mb-2 flex justify-between items-end">
+                                                <div>
+                                                    <div className="text-xs text-[#37E8FF] mb-1 uppercase tracking-wide">
+                                                        {series.category}
+                                                    </div>
+                                                    <h3 className="font-bold text-xl text-white leading-tight">
+                                                        {series.title}
+                                                    </h3>
+                                                    <p className="text-sm mt-1">{episode.title}</p>
+                                                </div>
+                                                <div className="text-sm px-2 py-1 rounded-full bg-black/30 backdrop-blur-sm">
+                                                    EP {series.currentEpisodeIndex + 1}/{series.episodes.length}
+                                                </div>
+                                            </div>
+
+                                            {/* Description - only show on active card */}
+                                            {isActive && (
+                                                <p className="text-sm text-white/80 mt-2 line-clamp-2">
+                                                    {episode.description}
+                                                </p>
+                                            )}
+
+                                            {/* Progress bar */}
+                                            <div className="progress-bar mt-4">
+                                                <div
+                                                    className="progress-bar-fill"
+                                                    style={{
+                                                        width: `${isActive ? currentProgress : episode.progress}%`
+                                                    }}
+                                                ></div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
+                            );
+                        })}
+                    </div>
+                )}
 
-                                {/* Card content */}
-                                <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/90 to-transparent">
-                                    <h3 className="font-bold text-lg">{series.title}</h3>
-                                    <p className="text-sm">{episode.title}</p>
-                                    <p className="text-xs text-gray-300">Episode {series.currentEpisode}</p>
+                {/* Mobile view - fullscreen reel */}
+                {isMobileView && (
+                    <div className="relative w-full h-screen">
+                        <div className="absolute inset-0">
+                            {/* Video player */}
+                            <VideoPlayer
+                                src={activeEpisode.videoSrc}
+                                isPlaying={isPlaying}
+                                onTimeUpdate={handleVideoProgress}
+                                className="h-full w-full object-cover"
+                                poster={activeEpisode.imageSrc}
+                                autoplay={true}
+                            />
 
-                                    {/* Swipe direction */}
-                                    <div className={`mt-2 text-sm ${index === 0 ? 'text-[#A742FF]' :
-                                        index === 1 ? 'text-[#37E8FF]' : 'text-[#FF3D8A]'
-                                        }`}>
-                                        {index === 0 ? 'Swipe Up' :
-                                            index === 1 ? 'Swipe Right' : 'Browse more...'}
+                            {/* Gradient overlays */}
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-black/30 pointer-events-none"></div>
+
+                            {/* Tap to pause/play */}
+                            <div
+                                className="absolute inset-0 z-10"
+                                onClick={handlePlay}
+                            >
+                                {/* Center play icon - only show when paused */}
+                                {!isPlaying && (
+                                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
+                                        <div className="w-20 h-20 rounded-full bg-black/30 backdrop-blur-sm flex items-center justify-center">
+                                            <svg className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Right side action buttons */}
+                            <div className="absolute right-3 bottom-32 flex flex-col items-center space-y-6 z-20">
+                                {/* Like button */}
+                                <button
+                                    onClick={() => handleLike(activeSeries.id, activeEpisode.id)}
+                                    className="flex flex-col items-center"
+                                >
+                                    <div className={`w-12 h-12 rounded-full ${userLikes[`${activeSeries.id}-${activeEpisode.id}`] ? 'bg-[#FF3D8A]/30' : 'bg-black/40'} backdrop-blur-sm flex items-center justify-center`}>
+                                        <svg className={`w-6 h-6 ${userLikes[`${activeSeries.id}-${activeEpisode.id}`] ? 'text-[#FF3D8A]' : 'text-white'}`} fill={userLikes[`${activeSeries.id}-${activeEpisode.id}`] ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                                        </svg>
+                                    </div>
+                                    <span className="text-xs mt-1">{formatNumber(activeEpisode.likes + (userLikes[`${activeSeries.id}-${activeEpisode.id}`] ? 1 : 0))}</span>
+                                </button>
+
+                                {/* Comment button */}
+                                <button className="flex flex-col items-center">
+                                    <div className="w-12 h-12 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                                        <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                                        </svg>
+                                    </div>
+                                    <span className="text-xs mt-1">Comment</span>
+                                </button>
+
+                                {/* Save button */}
+                                <button
+                                    onClick={() => handleSave(activeSeries.id, activeEpisode.id)}
+                                    className="flex flex-col items-center"
+                                >
+                                    <div className={`w-12 h-12 rounded-full ${userSaves[`${activeSeries.id}-${activeEpisode.id}`] ? 'bg-[#37E8FF]/30' : 'bg-black/40'} backdrop-blur-sm flex items-center justify-center`}>
+                                        <svg className={`w-6 h-6 ${userSaves[`${activeSeries.id}-${activeEpisode.id}`] ? 'text-[#37E8FF]' : 'text-white'}`} fill={userSaves[`${activeSeries.id}-${activeEpisode.id}`] ? "currentColor" : "none"} viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                                        </svg>
+                                    </div>
+                                    <span className="text-xs mt-1">Save</span>
+                                </button>
+
+                                {/* Share button */}
+                                <button className="flex flex-col items-center">
+                                    <div className="w-12 h-12 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                                        <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                                        </svg>
+                                    </div>
+                                    <span className="text-xs mt-1">Share</span>
+                                </button>
+
+                                {/* Speed control */}
+                                <button
+                                    onClick={handleSpeedChange}
+                                    className="flex flex-col items-center"
+                                >
+                                    <div className="w-12 h-12 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                                        <span className="text-white font-medium">{playbackSpeed}x</span>
+                                    </div>
+                                    <span className="text-xs mt-1">Speed</span>
+                                </button>
+                            </div>
+
+                            {/* Left/right navigation indicators */}
+                            <div className="absolute inset-x-0 top-1/2 transform -translate-y-1/2 flex justify-between px-4 pointer-events-none">
+                                <div className="w-12 h-12 rounded-full bg-black/20 backdrop-blur-sm flex items-center justify-center opacity-50">
+                                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                    </svg>
+                                </div>
+                                <div className="w-12 h-12 rounded-full bg-black/20 backdrop-blur-sm flex items-center justify-center opacity-50">
+                                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </div>
+                            </div>
+
+                            {/* Content info - bottom */}
+                            {showInfo && (
+                                <div className="absolute bottom-0 left-0 right-0 p-5 z-20">
+                                    <button
+                                        onClick={toggleInfo}
+                                        className="absolute top-0 right-4 p-2"
+                                    >
+                                        <svg className="w-5 h-5 text-white/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+
+                                    <div className="mb-2">
+                                        <div className="flex items-center space-x-3 mb-2">
+                                            <div className="w-10 h-10 rounded-full bg-[#37E8FF]/20 flex items-center justify-center">
+                                                <svg className="w-5 h-5 text-[#37E8FF]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                </svg>
+                                            </div>
+                                            <div>
+                                                <div className="font-medium">{activeEpisode.channelName}</div>
+                                                <div className="text-xs text-white/70">{formatNumber(activeEpisode.views)} views</div>
+                                            </div>
+
+                                            <Link
+                                                href={`/channels/${activeEpisode.channelId}`}
+                                                className="ml-auto text-sm bg-white/10 px-2 py-1 rounded"
+                                            >
+                                                Follow
+                                            </Link>
+                                        </div>
+
+                                        <h3 className="font-bold text-lg text-white">
+                                            {activeSeries.title}: {activeEpisode.title}
+                                        </h3>
+
+                                        <p className="text-sm text-white/80 mt-2 line-clamp-2">
+                                            {activeEpisode.description}
+                                        </p>
                                     </div>
 
                                     {/* Progress bar */}
                                     <div className="progress-bar mt-2">
                                         <div
                                             className="progress-bar-fill"
-                                            style={{ width: `${episode.progress}%` }}
+                                            style={{ width: `${currentProgress}%` }}
                                         ></div>
                                     </div>
                                 </div>
-                            </div>
-                        );
-                    })}
-                </div>
+                            )}
 
-                {/* Controls area */}
-                <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-[#121218] to-transparent pb-12">
-                    {/* Navigation controls */}
-                    <div className="flex justify-between items-center mb-8">
+                            {/* Info button - only when info is hidden */}
+                            {!showInfo && (
+                                <button
+                                    onClick={toggleInfo}
+                                    className="absolute bottom-4 right-4 w-12 h-12 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center z-20"
+                                >
+                                    <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                </button>
+                            )}
+
+                            {/* Swipe areas - invisible but functional */}
+                            <div
+                                className="absolute left-0 top-0 bottom-0 w-1/5 z-10"
+                                onClick={navigatePrev}
+                            ></div>
+                            <div
+                                className="absolute right-0 top-0 bottom-0 w-1/5 z-10"
+                                onClick={navigateNext}
+                            ></div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Navigation buttons - desktop view */}
+                {!isMobileView && (
+                    <div className="fixed bottom-10 left-0 right-0 flex justify-center items-center space-x-8 z-20">
                         {/* Previous button */}
                         <button
-                            onClick={navigatePrev}
+                            onClick={activeSeries.currentEpisodeIndex > 0 ? goToPrevEpisodeInSeries : navigatePrev}
                             className="control-btn w-12 h-12 rounded-full flex items-center justify-center border border-[#A742FF]/30 bg-[#121218]/70"
                         >
                             <div className="w-10 h-10 rounded-full bg-[#A742FF]/20 flex items-center justify-center">
@@ -197,7 +688,7 @@ export default function ExplorePage() {
 
                         {/* Next button */}
                         <button
-                            onClick={navigateNext}
+                            onClick={activeSeries.currentEpisodeIndex < activeSeries.episodes.length - 1 ? goToNextEpisodeInSeries : navigateNext}
                             className="control-btn w-12 h-12 rounded-full flex items-center justify-center border border-[#37E8FF]/30 bg-[#121218]/70"
                         >
                             <div className="w-10 h-10 rounded-full bg-[#37E8FF]/20 flex items-center justify-center">
@@ -207,33 +698,102 @@ export default function ExplorePage() {
                             </div>
                         </button>
                     </div>
+                )}
+            </div>
 
-                    {/* Bottom controls */}
-                    <div className="flex justify-between items-center">
-                        <button className="control-btn rounded-full w-10 h-10 bg-[#FF3D8A]/20 border border-[#FF3D8A]/30 flex items-center justify-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-[#FF3D8A]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l9-5-9-5-9 5 9 5z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l9-5-9-5-9 5 9 5z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14V3" />
+            {/* Fullscreen content view */}
+            {showFullContent && !isMobileView && (
+                <div className="fixed inset-0 bg-[#121218] z-50 flex flex-col">
+                    {/* Header */}
+                    <div className="p-4 flex justify-between items-center bg-gradient-to-b from-[#121218] to-transparent">
+                        <button
+                            onClick={() => setShowFullContent(false)}
+                            className="text-white/70 hover:text-white"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </button>
-
-                        <button className="control-btn rounded-full w-8 h-8 bg-white/10 flex items-center justify-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                            </svg>
-                        </button>
-
-                        <button className="control-btn rounded-full w-8 h-8 flex items-center justify-center bg-white/10 text-white text-xs font-bold">
-                            30
-                        </button>
-
-                        <button className="control-btn rounded-full w-10 h-10 bg-[#37E8FF]/20 border border-[#37E8FF]/30 flex items-center justify-center">
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-[#37E8FF]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                            </svg>
-                        </button>
+                        <div className="text-white/70">
+                            {activeSeries.title} • Episode {activeSeries.currentEpisodeIndex + 1}
+                        </div>
                     </div>
+
+                    {/* Video content */}
+                    <div className="relative w-full h-72 md:h-96">
+                        <VideoPlayer
+                            src={activeEpisode.videoSrc}
+                            isPlaying={true}
+                            className="h-full w-full object-cover"
+                            controls={true}
+                            autoplay={true}
+                        />
+                    </div>
+
+                    {/* Text content */}
+                    <div className="p-6 overflow-y-auto flex-1">
+                        <div className="flex items-center space-x-4 mb-4">
+                            <div className="w-12 h-12 rounded-full bg-[#37E8FF]/20 flex items-center justify-center">
+                                <svg className="w-6 h-6 text-[#37E8FF]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <div className="text-lg font-medium">{activeEpisode.channelName}</div>
+                                <div className="text-sm text-white/70">{formatNumber(activeEpisode.views)} views</div>
+                            </div>
+
+                            <Link
+                                href={`/channels/${activeEpisode.channelId}`}
+                                className="ml-auto bg-[#37E8FF] text-[#121218] px-4 py-2 rounded-lg font-medium"
+                            >
+                                Follow Channel
+                            </Link>
+                        </div>
+
+                        <h1 className="text-2xl font-bold mb-2">{activeEpisode.title}</h1>
+                        <div className="prose prose-invert max-w-none">
+                            <p className="text-white/80">{activeEpisode.description}</p>
+                        </div>
+
+                        {isConnected && (
+                            <div className="mt-8 p-4 bg-[#1A1A24] rounded-lg">
+                                <h3 className="font-medium mb-2">Channel Ownership</h3>
+                                <p className="text-sm text-white/70 mb-4">
+                                    You own 0% of this channel. Purchase shares to earn from this content.
+                                </p>
+                                <Link
+                                    href={`/marketplace?channel=${activeEpisode.channelId}`}
+                                    className="block w-full py-2 text-center bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] rounded-lg text-white"
+                                >
+                                    View in Marketplace
+                                </Link>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Gesture indicator - only show briefly on first load */}
+            <div className="fixed inset-0 pointer-events-none flex flex-col justify-between items-center p-12 opacity-0 animate-fadeOut">
+                <div className="bg-black/30 backdrop-blur-sm px-4 py-2 rounded-full">
+                    <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                    </svg>
+                </div>
+                <div className="flex justify-between w-full">
+                    <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                    </svg>
+                    <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                </div>
+                <div className="bg-black/30 backdrop-blur-sm px-4 py-2 rounded-full">
+                    <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
                 </div>
             </div>
         </div>

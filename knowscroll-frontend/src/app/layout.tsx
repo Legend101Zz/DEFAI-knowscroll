@@ -1,3 +1,4 @@
+
 import { WalletProvider } from '@/context/WalletContext';
 import './globals.css';
 import type { Metadata } from 'next';
@@ -6,8 +7,8 @@ import { Inter } from 'next/font/google';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'KnowScroll - Guilt-Free Social Media',
-  description: 'Transform your scrolling habit into something enriching',
+  title: 'KnowScroll - Transform Your Scrolling Habit',
+  description: 'Turn mindless scrolling into enlightening moments',
 };
 
 export default function RootLayout({
@@ -17,7 +18,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={inter.className}>
+      <body className={`${inter.className} bg-[#121218] text-white`}>
         <WalletProvider>
           {children}
         </WalletProvider>

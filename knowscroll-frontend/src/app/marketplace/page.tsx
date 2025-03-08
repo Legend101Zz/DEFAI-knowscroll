@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, } from 'react';
 import { useSearchParams } from 'next/navigation';
 import NavBar from '@/components/layout/NavBar';
 import MarketplaceListings from '@/components/marketplace/MarketplaceListings';
