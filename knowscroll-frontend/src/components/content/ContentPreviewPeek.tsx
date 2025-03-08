@@ -1,17 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import Image from 'next/image';
 import { SwipeDirection, SwipeType } from '@/hooks/useSwipe';
 
-interface ContentPreviewProps {
+interface ContentPreviewPeekProps {
     direction: SwipeDirection;
     type: SwipeType;
     previewData: {
         title: string;
         image: string;
         description: string;
-        category?: string;
+        category: string;
     } | null;
-    swipeProgress: number; // 0-100 value indicating swipe progress
+    swipeProgress: number;
     onClose: () => void;
 }
 
@@ -21,181 +21,97 @@ export default function ContentPreviewPeek({
     previewData,
     swipeProgress,
     onClose
-}: ContentPreviewProps) {
-    const [isVisible, setIsVisible] = useState(false);
+}: ContentPreviewPeekProps) {
+    if (!previewData || !direction || !type) return null;
 
-    useEffect(() => {
-        if (swipeProgress > 30) {
-            setIsVisible(true);
-        } else {
-            setIsVisible(false);
-        }
-    }, [swipeProgress]);
+    // Calculate position and animation based on direction
+    const getPositionClasses = () => {
+        const baseClasses = "fixed z-40 rounded-xl overflow-hidden w-72 h-96 shadow-lg transition-all duration-200";
 
-    // Handle escape key to close
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') onClose();
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [onClose]);
-
-    if (!isVisible || !previewData) return null;
-
-    // Get position and animation based on swipe direction
-    const getPositionStyles = () => {
-        const baseTransform = `scale(${0.8 + (swipeProgress / 500)})`;
-        const baseOpacity = Math.min(swipeProgress / 60, 1);
-
+        // Determine position based on swipe direction
         switch (direction) {
-            case 'up':
-                return {
-                    className: 'fixed top-0 inset-x-0 pt-16 pb-32 px-4 z-40 flex justify-center',
-                    style: {
-                        transform: `translateY(${Math.max(100 - swipeProgress, 0)}%) ${baseTransform}`,
-                        opacity: baseOpacity
-                    }
-                };
-            case 'down':
-                return {
-                    className: 'fixed bottom-0 inset-x-0 pb-16 pt-32 px-4 z-40 flex justify-center',
-                    style: {
-                        transform: `translateY(-${Math.max(100 - swipeProgress, 0)}%) ${baseTransform}`,
-                        opacity: baseOpacity
-                    }
-                };
             case 'left':
-                return {
-                    className: 'fixed left-0 inset-y-0 pl-8 pr-32 z-40 flex items-center',
-                    style: {
-                        transform: `translateX(${Math.max(100 - swipeProgress, 0)}%) ${baseTransform}`,
-                        opacity: baseOpacity
-                    }
-                };
+                return `${baseClasses} right-4 top-1/2 -translate-y-1/2 translate-x-${100 - Math.min(60, swipeProgress)}%`;
             case 'right':
-                return {
-                    className: 'fixed right-0 inset-y-0 pr-8 pl-32 z-40 flex items-center',
-                    style: {
-                        transform: `translateX(-${Math.max(100 - swipeProgress, 0)}%) ${baseTransform}`,
-                        opacity: baseOpacity
-                    }
-                };
+                return `${baseClasses} left-4 top-1/2 -translate-y-1/2 -translate-x-${100 - Math.min(60, swipeProgress)}%`;
+            case 'up':
+                return `${baseClasses} bottom-4 left-1/2 -translate-x-1/2 translate-y-${100 - Math.min(60, swipeProgress)}%`;
+            case 'down':
+                return `${baseClasses} top-4 left-1/2 -translate-x-1/2 -translate-y-${100 - Math.min(60, swipeProgress)}%`;
             default:
-                return {
-                    className: 'hidden',
-                    style: {}
-                };
+                return `${baseClasses} hidden`;
         }
     };
 
-    const positionStyles = getPositionStyles();
-    const isHorizontal = direction === 'left' || direction === 'right';
-    const gradientColors = type === 'series' ? 'from-[#3498db]/20 to-[#3498db]/50' : 'from-[#e74c3c]/20 to-[#e74c3c]/50';
-    const accentColor = type === 'series' ? 'border-[#3498db] text-[#3498db]' : 'border-[#e74c3c] text-[#e74c3c]';
+    // Get direction indicator text
+    const getDirectionText = () => {
+        if (type === 'topic') {
+            return direction === 'left' ? 'Next Topic' : 'Previous Topic';
+        } else {
+            return direction === 'up' ? 'Next Episode' : 'Previous Episode';
+        }
+    };
 
     return (
-        <>
-            {/* Background overlay */}
-            <div
-                className="fixed inset-0 bg-black/30 backdrop-blur-sm z-30 pointer-events-none"
-                style={{ opacity: Math.min(swipeProgress / 100, 0.5) }}
-            />
-
-            {/* Preview card */}
-            <div
-                className={positionStyles.className}
-                style={positionStyles.style}
+        <div className={getPositionClasses()}>
+            {/* Close button */}
+            <button
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onClose();
+                }}
+                className="absolute top-2 right-2 z-50 bg-black/50 rounded-full p-1"
             >
-                <div className={`
-          bg-gradient-to-b ${gradientColors} backdrop-blur-md
-          rounded-2xl overflow-hidden shadow-2xl border border-white/10
-          max-w-xs ${isHorizontal ? 'w-64 h-80' : 'w-80 max-h-96'}
-          relative pointer-events-none
-        `}>
-                    {/* Preview image */}
-                    <div className="w-full h-40 relative">
-                        <Image
-                            src={previewData.image}
-                            alt={previewData.title}
-                            fill
-                            sizes="(max-width: 768px) 100vw, 33vw"
-                            style={{ objectFit: 'cover' }}
-                            className="brightness-75"
-                        />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
-                    </div>
+                <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
 
-                    {/* Content */}
-                    <div className="p-4">
-                        {previewData.category && (
-                            <div className={`text-xs font-bold uppercase mb-1 ${accentColor}`}>
-                                {previewData.category}
-                            </div>
-                        )}
-                        <h3 className="text-lg font-bold text-white mb-2">{previewData.title}</h3>
-                        <p className="text-sm text-white/70 line-clamp-3">{previewData.description}</p>
-                    </div>
+            {/* Preview indicator */}
+            <div className="absolute top-3 left-3 z-20 px-2 py-1 bg-black/60 backdrop-blur-sm rounded-full text-xs text-white/90 flex items-center">
+                <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                <span>{getDirectionText()}</span>
+            </div>
 
-                    {/* Direction indicator */}
-                    <div className={`absolute ${getDirectionIndicatorPosition(direction)} p-2`}>
-                        <div className={`w-10 h-10 rounded-full bg-black/40 border ${accentColor} flex items-center justify-center`}>
-                            {getDirectionIcon(direction, accentColor)}
-                        </div>
-                    </div>
+            {/* Image */}
+            <div className="relative h-full w-full">
+                <Image
+                    src={previewData.image}
+                    alt={previewData.title}
+                    fill
+                    style={{ objectFit: 'cover' }}
+                    className="brightness-75"
+                />
 
-                    {/* Swipe hint - indicates user should continue swiping */}
-                    <div className="absolute bottom-2 right-2">
-                        <div className="text-xs text-white/70 px-2 py-1 bg-black/30 rounded-full">
-                            {swipeProgress < 70 ? 'Continue swiping' : 'Release to view'}
-                        </div>
+                {/* Gradient overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none"></div>
+            </div>
+
+            {/* Content info */}
+            <div className="absolute bottom-0 left-0 right-0 p-4">
+                <div className="text-xs text-[#37E8FF] mb-1 uppercase tracking-wide">
+                    {previewData.category}
+                </div>
+                <h3 className="font-bold text-xl text-white leading-tight mb-1">
+                    {previewData.title}
+                </h3>
+                <p className="text-sm text-white/80 line-clamp-2">
+                    {previewData.description}
+                </p>
+
+                {/* Swipe indicator */}
+                <div className="mt-4 flex justify-center">
+                    <div className="h-1 w-full bg-white/20 rounded-full overflow-hidden">
+                        <div
+                            className="h-full bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] rounded-full transition-all duration-300"
+                            style={{ width: `${Math.min(100, swipeProgress * 1.7)}%` }}
+                        ></div>
                     </div>
                 </div>
             </div>
-        </>
+        </div>
     );
-}
-
-// Helper function to get indicator position based on direction
-function getDirectionIndicatorPosition(direction: SwipeDirection): string {
-    switch (direction) {
-        case 'up': return 'bottom-4 left-1/2 transform -translate-x-1/2';
-        case 'down': return 'top-4 left-1/2 transform -translate-x-1/2';
-        case 'left': return 'right-4 top-1/2 transform -translate-y-1/2';
-        case 'right': return 'left-4 top-1/2 transform -translate-y-1/2';
-        default: return '';
-    }
-}
-
-// Helper function to get directional icon
-function getDirectionIcon(direction: SwipeDirection, colorClass: string): React.ReactNode {
-    switch (direction) {
-        case 'up':
-            return (
-                <svg className={`w-6 h-6 ${colorClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                </svg>
-            );
-        case 'down':
-            return (
-                <svg className={`w-6 h-6 ${colorClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-            );
-        case 'left':
-            return (
-                <svg className={`w-6 h-6 ${colorClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-            );
-        case 'right':
-            return (
-                <svg className={`w-6 h-6 ${colorClass}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-            );
-        default:
-            return null;
-    }
 }

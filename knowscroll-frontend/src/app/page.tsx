@@ -221,7 +221,7 @@ export default function Home() {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
           const target = parseFloat(entry.target.getAttribute('data-target'));
-          const duration = 2000; // Animation duration in milliseconds
+          const duration = 5000; // Animation duration in milliseconds
           const frameDuration = 1000 / 60; // Assuming 60fps
           const totalFrames = Math.round(duration / frameDuration);
           let frame = 0;
@@ -268,19 +268,19 @@ export default function Home() {
       name: "Alex Chen",
       role: "Channel Stakeholder",
       content: "I've always loved scrolling, but felt guilty about wasting time. With KnowScroll, I learn something new with every swipe and even earn from it!",
-      avatar: "/api/placeholder/48/48"
+      avatar: "/images/person3.jpg"
     },
     {
       name: "Sofia Garcia",
       role: "Content Creator",
       content: "Setting up my AI channel was simple. Now I curate the direction while AI does the heavy lifting, and stakeholders help govern content strategy.",
-      avatar: "/api/placeholder/48/48"
+      avatar: "/images/person1.jpg"
     },
     {
       name: "Mark Johnson",
       role: "Daily User",
       content: "The dual navigation is brilliant. I can follow a deep series about topics I care about, or swipe for variety. No more mindless scrolling.",
-      avatar: "/api/placeholder/48/48"
+      avatar: "/images/person2.jpg"
     }
   ];
 
@@ -353,7 +353,7 @@ export default function Home() {
                       {/* Content */}
                       <div className="absolute inset-0 h-full w-full">
                         <Image
-                          src="/api/placeholder/280/560"
+                          src="/images/demo.png"
                           alt="App Preview"
                           width={280}
                           height={560}

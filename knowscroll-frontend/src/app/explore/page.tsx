@@ -39,6 +39,7 @@ type Episode = {
 export default function ExplorePage() {
     const { isConnected } = useWallet();
     const [activeIndex, setActiveIndex] = useState(1); // Center card is active
+    const [seriesData, setSeriesData] = useState<Series[]>([]);
     const [isPlaying, setIsPlaying] = useState(true); // Auto-play by default
     const [currentProgress, setCurrentProgress] = useState(0);
     const [showFullContent, setShowFullContent] = useState(false);
@@ -50,112 +51,196 @@ export default function ExplorePage() {
     const [showInfo, setShowInfo] = useState(true);
     const [transitioning, setTransitioning] = useState(false);
     const [showTutorial, setShowTutorial] = useState(true);
+    const [swipeDirection, setSwipeDirection] = useState<SwipeDirection>(null);
+    const [swipeIndicatorVisible, setSwipeIndicatorVisible] = useState(false);
 
-    // Sample data with enhanced metadata
-    const seriesData: Series[] = [
-        {
-            id: "technology",
-            title: "Future Tech",
-            category: "Technology",
-            currentEpisodeIndex: 0,
-            episodes: [
-                {
-                    id: 1,
-                    title: "Space Tech Revolution",
-                    description: "The origins of space technology can be traced back to the early 20th century, but recent advancements have accelerated our capacity for space exploration. Private companies are now leading innovations in reusable rockets, satellite technology, and plans for Mars colonization.",
-                    progress: 0,
-                    imageSrc: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=500",
-                    videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
-                    channelId: 1,
-                    channelName: "Future Tech Channel",
-                    duration: 60,
-                    likes: 1324,
-                    views: 24850
-                },
-                {
-                    id: 2,
-                    title: "AI in Everyday Life",
-                    description: "Artificial intelligence has rapidly integrated into our daily lives, from voice assistants to content recommendations. This episode explores how machine learning algorithms have evolved and what the future of AI might look like in healthcare, transportation, and creative industries.",
-                    progress: 0,
-                    imageSrc: "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?q=80&w=500",
-                    videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-                    channelId: 1,
-                    channelName: "Future Tech Channel",
-                    duration: 45,
-                    likes: 983,
-                    views: 18792
-                }
-            ]
-        },
-        {
-            id: "worldwar2",
-            title: "World War II",
-            category: "History",
-            currentEpisodeIndex: 0,
-            episodes: [
-                {
-                    id: 1,
-                    title: "Origins of WWII",
-                    description: "The origins of World War II can be traced back to the harsh Treaty of Versailles that ended World War I. This treaty imposed severe economic sanctions on Germany and required the country to accept responsibility for the war. The Great Depression further destabilized Europe, creating conditions that allowed the Nazi Party to rise to power.",
-                    progress: 0,
-                    imageSrc: "https://images.unsplash.com/photo-1579373903781-fd5c0c30c4cd?q=80&w=500",
-                    videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-                    channelId: 2,
-                    channelName: "History Channel",
-                    duration: 75,
-                    likes: 2456,
-                    views: 52103
-                },
-                {
-                    id: 2,
-                    title: "The Pacific Theater",
-                    description: "The Pacific War was the theater of World War II fought in the Pacific and East Asia. It began with Japan's attack on Pearl Harbor on December 7, 1941, and concluded with Japan's surrender to the Allies on September 2, 1945, which brought the war to an end.",
-                    progress: 0,
-                    imageSrc: "https://images.unsplash.com/photo-1604918898611-3e1ec2f3d77c?q=80&w=500",
-                    videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-                    channelId: 2,
-                    channelName: "History Channel",
-                    duration: 65,
-                    likes: 1876,
-                    views: 43290
-                }
-            ]
-        },
-        {
-            id: "space",
-            title: "Space Exploration",
-            category: "Science",
-            currentEpisodeIndex: 0,
-            episodes: [
-                {
-                    id: 1,
-                    title: "The Space Race",
-                    description: "The Space Race was a competition between the United States and the Soviet Union starting in the 1950s. Both nations sought to demonstrate technological superiority through achievements in spaceflight, culminating in the historic Apollo moon landing in 1969.",
-                    progress: 0,
-                    imageSrc: "https://images.unsplash.com/photo-1454789548928-9efd52dc4031?q=80&w=500",
-                    videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-                    channelId: 3,
-                    channelName: "Space Channel",
-                    duration: 55,
-                    likes: 3245,
-                    views: 78465
-                },
-                {
-                    id: 2,
-                    title: "Mars: The Next Frontier",
-                    description: "As humans look beyond Earth, Mars has emerged as our most promising destination for colonization. This episode explores the challenges of Mars missions, from the harsh environment to the technological hurdles of getting there and sustaining human life.",
-                    progress: 0,
-                    imageSrc: "https://images.unsplash.com/photo-1614728263952-84ea256f9679?q=80&w=500",
-                    videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-                    channelId: 3,
-                    channelName: "Space Channel",
-                    duration: 60,
-                    likes: 2198,
-                    views: 58741
-                }
-            ]
-        }
-    ];
+    // Richer sample data with more episodes for vertical scrolling
+    useEffect(() => {
+        const initialSeriesData: Series[] = [
+            {
+                id: "quantum-physics",
+                title: "Quantum Physics",
+                category: "Science",
+                currentEpisodeIndex: 0,
+                episodes: [
+                    {
+                        id: 1,
+                        title: "Quantum Entanglement",
+                        description: "Quantum entanglement is a physical phenomenon that occurs when a group of particles are generated, interact, or share spatial proximity in a way such that the quantum state of each particle cannot be described independently of the state of the others, including when the particles are separated by a large distance.",
+                        progress: 0,
+                        imageSrc: "https://images.unsplash.com/photo-1635070041078-e363dbe005cb?q=80&w=500",
+                        videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
+                        channelId: 1,
+                        channelName: "Quantum Realm",
+                        duration: 65,
+                        likes: 2451,
+                        views: 35840
+                    },
+                    {
+                        id: 2,
+                        title: "Wave-Particle Duality",
+                        description: "Wave-particle duality is the concept in quantum mechanics that every particle or quantum entity may be described as either a particle or a wave. It expresses the inability of classical concepts like 'particle' or 'wave' to fully describe the behavior of quantum-scale objects.",
+                        progress: 0,
+                        imageSrc: "https://images.unsplash.com/photo-1610979290107-4aa84d3c39c5?q=80&w=500",
+                        videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+                        channelId: 1,
+                        channelName: "Quantum Realm",
+                        duration: 55,
+                        likes: 1983,
+                        views: 28792
+                    },
+                    {
+                        id: 3,
+                        title: "Schrödinger's Cat",
+                        description: "Schrödinger's cat is a thought experiment devised by Erwin Schrödinger in 1935, which illustrates what he saw as the problem of the Copenhagen interpretation of quantum mechanics. The scenario presents a cat that may be simultaneously both alive and dead, a state known as a quantum superposition.",
+                        progress: 0,
+                        imageSrc: "https://images.unsplash.com/photo-1608588722255-6330d432a376?q=80&w=500",
+                        videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+                        channelId: 1,
+                        channelName: "Quantum Realm",
+                        duration: 60,
+                        likes: 2341,
+                        views: 31842
+                    },
+                    {
+                        id: 4,
+                        title: "Quantum Tunneling",
+                        description: "Quantum tunneling is a quantum mechanical phenomenon where a particle tunnels through a barrier that it classically could not surmount. This plays an essential role in several physical phenomena, such as nuclear fusion in stars and the operation of certain semiconductor devices.",
+                        progress: 0,
+                        imageSrc: "https://images.unsplash.com/photo-1623932666557-048f7f754212?q=80&w=500",
+                        videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+                        channelId: 1,
+                        channelName: "Quantum Realm",
+                        duration: 58,
+                        likes: 1842,
+                        views: 29751
+                    }
+                ]
+            },
+            {
+                id: "worldwar2",
+                title: "World War II",
+                category: "History",
+                currentEpisodeIndex: 0,
+                episodes: [
+                    {
+                        id: 1,
+                        title: "Origins of WWII",
+                        description: "The origins of World War II can be traced back to the harsh Treaty of Versailles that ended World War I. This treaty imposed severe economic sanctions on Germany and required the country to accept responsibility for the war. The Great Depression further destabilized Europe, creating conditions that allowed the Nazi Party to rise to power.",
+                        progress: 0,
+                        imageSrc: "https://images.unsplash.com/photo-1579373903781-fd5c0c30c4cd?q=80&w=500",
+                        videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+                        channelId: 2,
+                        channelName: "History Channel",
+                        duration: 75,
+                        likes: 2456,
+                        views: 52103
+                    },
+                    {
+                        id: 2,
+                        title: "The Pacific Theater",
+                        description: "The Pacific War was the theater of World War II fought in the Pacific and East Asia. It began with Japan's attack on Pearl Harbor on December 7, 1941, and concluded with Japan's surrender to the Allies on September 2, 1945, which brought the war to an end.",
+                        progress: 0,
+                        imageSrc: "https://images.unsplash.com/photo-1604918898611-3e1ec2f3d77c?q=80&w=500",
+                        videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+                        channelId: 2,
+                        channelName: "History Channel",
+                        duration: 65,
+                        likes: 1876,
+                        views: 43290
+                    },
+                    {
+                        id: 3,
+                        title: "D-Day Invasion",
+                        description: "The Normandy landings, codenamed Operation Neptune, were the landing operations of the Allied invasion of Normandy in Operation Overlord during World War II. The landings commenced on June 6, 1944 (D-Day), beginning the liberation of German-occupied France from Nazi control.",
+                        progress: 0,
+                        imageSrc: "https://images.unsplash.com/photo-1534375866924-7eacd63fcb11?q=80&w=500",
+                        videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
+                        channelId: 2,
+                        channelName: "History Channel",
+                        duration: 70,
+                        likes: 2854,
+                        views: 57103
+                    },
+                    {
+                        id: 4,
+                        title: "The Fall of Berlin",
+                        description: "The Battle of Berlin, designated the Berlin Strategic Offensive Operation by the Soviet Union, was the final major offensive of the European theatre of World War II. Following the Vistula–Oder Offensive of January–February 1945, the Red Army had temporarily halted on a line 60 km (37 mi) east of Berlin.",
+                        progress: 0,
+                        imageSrc: "https://images.unsplash.com/photo-1612531806146-485c500195f2?q=80&w=500",
+                        videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
+                        channelId: 2,
+                        channelName: "History Channel",
+                        duration: 68,
+                        likes: 2143,
+                        views: 48750
+                    }
+                ]
+            },
+            {
+                id: "space",
+                title: "Space Exploration",
+                category: "Science",
+                currentEpisodeIndex: 0,
+                episodes: [
+                    {
+                        id: 1,
+                        title: "The Space Race",
+                        description: "The Space Race was a competition between the United States and the Soviet Union starting in the 1950s. Both nations sought to demonstrate technological superiority through achievements in spaceflight, culminating in the historic Apollo moon landing in 1969.",
+                        progress: 0,
+                        imageSrc: "https://images.unsplash.com/photo-1454789548928-9efd52dc4031?q=80&w=500",
+                        videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4",
+                        channelId: 3,
+                        channelName: "Space Channel",
+                        duration: 55,
+                        likes: 3245,
+                        views: 78465
+                    },
+                    {
+                        id: 2,
+                        title: "Mars: The Next Frontier",
+                        description: "As humans look beyond Earth, Mars has emerged as our most promising destination for colonization. This episode explores the challenges of Mars missions, from the harsh environment to the technological hurdles of getting there and sustaining human life.",
+                        progress: 0,
+                        imageSrc: "https://images.unsplash.com/photo-1614728263952-84ea256f9679?q=80&w=500",
+                        videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4",
+                        channelId: 3,
+                        channelName: "Space Channel",
+                        duration: 60,
+                        likes: 2198,
+                        views: 58741
+                    },
+                    {
+                        id: 3,
+                        title: "Black Holes Explained",
+                        description: "Black holes are regions of spacetime where gravity is so strong that nothing—no particles or even electromagnetic radiation such as light—can escape from it. This episode explores the formation, properties, and mysteries of these cosmic phenomena.",
+                        progress: 0,
+                        imageSrc: "https://images.unsplash.com/photo-1462331940025-496dfbfc7564?q=80&w=500",
+                        videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+                        channelId: 3,
+                        channelName: "Space Channel",
+                        duration: 62,
+                        likes: 2876,
+                        views: 67432
+                    },
+                    {
+                        id: 4,
+                        title: "Exoplanets: Worlds Beyond",
+                        description: "Exoplanets are planets beyond our solar system. Thousands have been discovered in the past two decades, many by NASA's Kepler Space Telescope. This episode explores these distant worlds and their potential to harbor life.",
+                        progress: 0,
+                        imageSrc: "https://images.unsplash.com/photo-1543722530-d2c3201371e7?q=80&w=500",
+                        videoSrc: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+                        channelId: 3,
+                        channelName: "Space Channel",
+                        duration: 58,
+                        likes: 2435,
+                        views: 63521
+                    }
+                ]
+            }
+        ];
+
+        setSeriesData(initialSeriesData);
+    }, []);
 
     // Format numbers for display (e.g., 1.2k instead of 1200)
     const formatNumber = (num: number): string => {
@@ -170,7 +255,7 @@ export default function ExplorePage() {
 
     // Get the active series and episode
     const activeSeries = seriesData[activeIndex];
-    const activeEpisode = activeSeries?.episodes[activeSeries.currentEpisodeIndex];
+    const activeEpisode = activeSeries?.episodes[activeSeries?.currentEpisodeIndex || 0];
 
     // Check for mobile viewport on component mount
     useEffect(() => {
@@ -215,6 +300,8 @@ export default function ExplorePage() {
                 ? (activeIndex === seriesData.length - 1 ? 0 : activeIndex + 1)
                 : (activeIndex === 0 ? seriesData.length - 1 : activeIndex - 1);
 
+            if (!seriesData[targetIndex]) return null;
+
             const targetSeries = seriesData[targetIndex];
             const targetEpisode = targetSeries.episodes[targetSeries.currentEpisodeIndex];
 
@@ -233,53 +320,100 @@ export default function ExplorePage() {
     const handleSwipeLeft = () => {
         if (transitioning) return;
         setTransitioning(true);
+        setSwipeDirection('left');
+        setSwipeIndicatorVisible(true);
 
         setTimeout(() => {
             navigateNext();
             setTransitioning(false);
+
+            setTimeout(() => {
+                setSwipeIndicatorVisible(false);
+                setSwipeDirection(null);
+            }, 500);
         }, 300);
     };
 
     const handleSwipeRight = () => {
         if (transitioning) return;
         setTransitioning(true);
+        setSwipeDirection('right');
+        setSwipeIndicatorVisible(true);
 
         setTimeout(() => {
             navigatePrev();
             setTransitioning(false);
+
+            setTimeout(() => {
+                setSwipeIndicatorVisible(false);
+                setSwipeDirection(null);
+            }, 500);
         }, 300);
     };
 
     const handleSwipeUp = () => {
         if (transitioning) return;
         setTransitioning(true);
+        setSwipeDirection('up');
+        setSwipeIndicatorVisible(true);
 
-        if (activeSeries.currentEpisodeIndex < activeSeries.episodes.length - 1) {
+        if (activeSeries?.currentEpisodeIndex < (activeSeries?.episodes.length - 1)) {
             setTimeout(() => {
-                goToNextEpisodeInSeries();
+                const newSeriesData = [...seriesData];
+                newSeriesData[activeIndex].currentEpisodeIndex += 1;
+                setSeriesData(newSeriesData);
+                setCurrentProgress(0);
                 setTransitioning(false);
+
+                setTimeout(() => {
+                    setSwipeIndicatorVisible(false);
+                    setSwipeDirection(null);
+                }, 500);
             }, 300);
         } else {
-            setTransitioning(false);
+            setTimeout(() => {
+                setTransitioning(false);
+                setSwipeIndicatorVisible(false);
+                setSwipeDirection(null);
+            }, 300);
         }
     };
 
     const handleSwipeDown = () => {
         if (transitioning) return;
         setTransitioning(true);
+        setSwipeDirection('down');
+        setSwipeIndicatorVisible(true);
 
         if (showFullContent) {
             setTimeout(() => {
                 setShowFullContent(false);
                 setTransitioning(false);
+
+                setTimeout(() => {
+                    setSwipeIndicatorVisible(false);
+                    setSwipeDirection(null);
+                }, 500);
             }, 300);
-        } else if (activeSeries.currentEpisodeIndex > 0) {
+        } else if (activeSeries?.currentEpisodeIndex > 0) {
             setTimeout(() => {
-                goToPrevEpisodeInSeries();
+                const newSeriesData = [...seriesData];
+                newSeriesData[activeIndex].currentEpisodeIndex -= 1;
+                setSeriesData(newSeriesData);
+                setCurrentProgress(0);
                 setTransitioning(false);
+
+                setTimeout(() => {
+                    setSwipeIndicatorVisible(false);
+                    setSwipeDirection(null);
+                }, 500);
             }, 300);
         } else {
-            setTransitioning(false);
+            setTimeout(() => {
+                setTransitioning(false);
+                setSwipeIndicatorVisible(false);
+                setSwipeDirection(null);
+            }, 300);
         }
     };
 
@@ -298,24 +432,6 @@ export default function ExplorePage() {
     const navigatePrev = () => {
         setActiveIndex((prev) => (prev === 0 ? seriesData.length - 1 : prev - 1));
         setCurrentProgress(0);
-    };
-
-    // Go to next episode in the current series
-    const goToNextEpisodeInSeries = () => {
-        if (activeSeries.currentEpisodeIndex < activeSeries.episodes.length - 1) {
-            const newSeriesData = [...seriesData];
-            newSeriesData[activeIndex].currentEpisodeIndex += 1;
-            setCurrentProgress(0);
-        }
-    };
-
-    // Go to previous episode in the current series
-    const goToPrevEpisodeInSeries = () => {
-        if (activeSeries.currentEpisodeIndex > 0) {
-            const newSeriesData = [...seriesData];
-            newSeriesData[activeIndex].currentEpisodeIndex -= 1;
-            setCurrentProgress(0);
-        }
     };
 
     // Handle speed change
@@ -353,8 +469,11 @@ export default function ExplorePage() {
     // Handle video end
     const handleVideoEnd = () => {
         // Automatically go to next episode or next series
-        if (activeSeries.currentEpisodeIndex < activeSeries.episodes.length - 1) {
-            goToNextEpisodeInSeries();
+        if (activeSeries && activeSeries.currentEpisodeIndex < activeSeries.episodes.length - 1) {
+            const newSeriesData = [...seriesData];
+            newSeriesData[activeIndex].currentEpisodeIndex += 1;
+            setSeriesData(newSeriesData);
+            setCurrentProgress(0);
         } else {
             navigateNext();
         }
@@ -376,6 +495,33 @@ export default function ExplorePage() {
             // Cards to the right
             return 'z-10 scale-90 opacity-60 translate-x-12 rotate-[5deg]';
         }
+    };
+
+    // Render swipe indicators
+    const renderSwipeIndicator = () => {
+        if (!swipeIndicatorVisible || !swipeDirection) return null;
+
+        const indicatorClasses = {
+            up: "top-10 left-1/2 -translate-x-1/2 -translate-y-full",
+            down: "bottom-10 left-1/2 -translate-x-1/2 translate-y-full",
+            left: "left-10 top-1/2 -translate-x-full -translate-y-1/2",
+            right: "right-10 top-1/2 translate-x-full -translate-y-1/2"
+        };
+
+        const icons = {
+            up: <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>,
+            down: <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" /></svg>,
+            left: <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>,
+            right: <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+        };
+
+        return (
+            <div className={`absolute ${indicatorClasses[swipeDirection]} transition-all duration-300 ease-out transform`}>
+                <div className="bg-white/20 backdrop-blur-md p-3 rounded-full text-white animate-pulse">
+                    {icons[swipeDirection]}
+                </div>
+            </div>
+        );
     };
 
     return (
@@ -411,11 +557,17 @@ export default function ExplorePage() {
                 onTutorialDismiss={() => setShowTutorial(false)}
             >
                 <div className="relative min-h-screen w-full flex items-center justify-center pt-16 pb-20">
+                    {/* Swipe indicator */}
+                    {renderSwipeIndicator()}
+
                     {/* Cards container - for desktop */}
                     {!isMobileView && (
                         <div className="flex justify-center items-center w-full max-w-[1100px] h-[80vh] relative">
                             {seriesData.map((series, index) => {
+                                if (!series) return null;
                                 const episode = series.episodes[series.currentEpisodeIndex];
+                                if (!episode) return null;
+
                                 const isActive = index === activeIndex;
                                 const likeKey = `${series.id}-${episode.id}`;
                                 const isLiked = userLikes[likeKey] || false;
@@ -561,6 +713,24 @@ export default function ExplorePage() {
                                                         }}
                                                     ></div>
                                                 </div>
+
+                                                {/* Swipe indicators */}
+                                                <div className="mt-4 flex justify-between">
+                                                    <div className="flex items-center text-xs text-white/60">
+                                                        <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16l-4-4m0 0l4-4m-4 4h18" />
+                                                        </svg>
+                                                        Swipe
+                                                    </div>
+                                                    {series.episodes.length > 1 && series.currentEpisodeIndex < series.episodes.length - 1 && (
+                                                        <div className="flex items-center text-xs text-white/60">
+                                                            <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                                                            </svg>
+                                                            Next episode
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -570,7 +740,7 @@ export default function ExplorePage() {
                     )}
 
                     {/* Mobile view - fullscreen reel */}
-                    {isMobileView && (
+                    {isMobileView && activeSeries && activeEpisode && (
                         <div className="relative w-full h-screen">
                             <div className="absolute inset-0">
                                 {/* Video player */}
@@ -606,6 +776,38 @@ export default function ExplorePage() {
                                         </div>
                                     )}
                                 </div>
+
+                                {/* Topic indicator (top) */}
+                                <div className="absolute top-16 left-0 right-0 flex justify-center">
+                                    <div className="px-4 py-1 bg-black/40 backdrop-blur-sm rounded-full flex items-center space-x-2">
+                                        <span className="text-[#37E8FF]">{activeSeries.title}</span>
+                                        <span className="text-white/30">•</span>
+                                        <span className="text-white/70">EP {activeSeries.currentEpisodeIndex + 1}/{activeSeries.episodes.length}</span>
+                                    </div>
+                                </div>
+
+                                {/* Episode navigation indicators */}
+                                {activeSeries.currentEpisodeIndex < activeSeries.episodes.length - 1 && (
+                                    <div className="absolute top-28 left-0 right-0 flex justify-center">
+                                        <div className="text-xs text-white/50 flex items-center">
+                                            <svg className="w-3 h-3 mr-1 animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                                            </svg>
+                                            Swipe up for next episode
+                                        </div>
+                                    </div>
+                                )}
+
+                                {activeSeries.currentEpisodeIndex > 0 && (
+                                    <div className="absolute bottom-20 left-0 right-0 flex justify-center">
+                                        <div className="text-xs text-white/50 flex items-center">
+                                            <svg className="w-3 h-3 mr-1 animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                                            </svg>
+                                            Swipe down for previous episode
+                                        </div>
+                                    </div>
+                                )}
 
                                 {/* Right side action buttons */}
                                 <div className="absolute right-3 bottom-32 flex flex-col items-center space-y-6 z-20">
@@ -725,11 +927,11 @@ export default function ExplorePage() {
                     )}
 
                     {/* Navigation buttons - desktop view */}
-                    {!isMobileView && (
+                    {!isMobileView && activeSeries && (
                         <div className="fixed bottom-10 left-0 right-0 flex justify-center items-center space-x-8 z-20">
                             {/* Previous button */}
                             <button
-                                onClick={activeSeries.currentEpisodeIndex > 0 ? goToPrevEpisodeInSeries : navigatePrev}
+                                onClick={activeSeries.currentEpisodeIndex > 0 ? handleSwipeDown : handleSwipeRight}
                                 className="control-btn w-12 h-12 rounded-full flex items-center justify-center border border-[#A742FF]/30 bg-[#121218]/70 transform transition-transform hover:scale-105 active:scale-95"
                             >
                                 <div className="w-10 h-10 rounded-full bg-[#A742FF]/20 flex items-center justify-center">
@@ -760,7 +962,7 @@ export default function ExplorePage() {
 
                             {/* Next button */}
                             <button
-                                onClick={activeSeries.currentEpisodeIndex < activeSeries.episodes.length - 1 ? goToNextEpisodeInSeries : navigateNext}
+                                onClick={activeSeries.currentEpisodeIndex < activeSeries.episodes.length - 1 ? handleSwipeUp : handleSwipeLeft}
                                 className="control-btn w-12 h-12 rounded-full flex items-center justify-center border border-[#37E8FF]/30 bg-[#121218]/70 transform transition-transform hover:scale-105 active:scale-95"
                             >
                                 <div className="w-10 h-10 rounded-full bg-[#37E8FF]/20 flex items-center justify-center">
@@ -771,11 +973,46 @@ export default function ExplorePage() {
                             </button>
                         </div>
                     )}
+
+                    {/* Episode navigation dots - desktop */}
+                    {!isMobileView && activeSeries && activeSeries.episodes.length > 1 && (
+                        <div className="fixed left-6 top-1/2 transform -translate-y-1/2 z-20 flex flex-col items-center space-y-2">
+                            {activeSeries.episodes.map((episode, idx) => (
+                                <div
+                                    key={episode.id}
+                                    className={`w-2 h-2 rounded-full cursor-pointer transition-all ${idx === activeSeries.currentEpisodeIndex ? 'bg-[#37E8FF] scale-150' : 'bg-white/40 hover:bg-white/60'}`}
+                                    onClick={() => {
+                                        if (idx !== activeSeries.currentEpisodeIndex) {
+                                            const newSeriesData = [...seriesData];
+                                            newSeriesData[activeIndex].currentEpisodeIndex = idx;
+                                            setSeriesData(newSeriesData);
+                                            setCurrentProgress(0);
+                                        }
+                                    }}
+                                    title={`Episode ${idx + 1}: ${episode.title}`}
+                                ></div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Topic navigation dots - desktop */}
+                    {!isMobileView && (
+                        <div className="fixed bottom-2 left-0 right-0 flex justify-center items-center space-x-2 z-20 mb-4">
+                            {seriesData.map((series, idx) => (
+                                <div
+                                    key={series.id}
+                                    className={`w-2 h-2 rounded-full cursor-pointer transition-all ${idx === activeIndex ? 'bg-[#FF3D8A] scale-150' : 'bg-white/40 hover:bg-white/60'}`}
+                                    onClick={() => setActiveIndex(idx)}
+                                    title={series.title}
+                                ></div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             </IntegratedNavigationSystem>
 
             {/* Fullscreen content view */}
-            {showFullContent && !isMobileView && (
+            {showFullContent && !isMobileView && activeSeries && activeEpisode && (
                 <div className="fixed inset-0 bg-[#121218] z-50 flex flex-col">
                     {/* Header */}
                     <div className="p-4 flex justify-between items-center bg-gradient-to-b from-[#121218] to-transparent">
