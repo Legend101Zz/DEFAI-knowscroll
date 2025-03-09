@@ -913,8 +913,12 @@ export default function GovernancePage() {
 
             // Extract meaningful error message if possible
             let errorMsg = "Failed to create proposal. Please try again.";
-            if (error.message && error.message.includes("below proposal threshold")) {
-                errorMsg = "You don't have enough voting power to create a proposal. The minimum threshold is 5% of total shares.";
+            if (error.message) {
+                if (error.message.includes("below proposal threshold")) {
+                    errorMsg = "You don't have enough voting power to create a proposal. The minimum threshold is 5% of total shares.";
+                } else if (error.message.includes("voting period too short")) {
+                    errorMsg = "The voting period is too short. Minimum period is " + (minVotingPeriod / 3600) + " hours.";
+                }
             }
 
             setError(errorMsg);
