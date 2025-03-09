@@ -8,6 +8,7 @@ export const ChannelNFTAbi = [
   "function getCreatedChannels(address creator) external view returns (uint256[] memory)",
   "function setApprovalForAll(address operator, bool approved) external",
   "function isApprovedForAll(address account, address operator) external view returns (bool)",
+  "function getTotalChannels() external view returns (uint256)",
 ];
 
 // RevenueDistribution ABI

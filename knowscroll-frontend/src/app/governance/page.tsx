@@ -1,19 +1,20 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import AppNavBar from '@/components/layout/AppNavBar';
-import Link from 'next/link';
-import { useWallet } from '@/context/WalletContext';
-import { useGovernance, useChannelNFT } from '@/hooks/useContract';
+import { useSearchParams } from 'next/navigation';
 import { ethers } from 'ethers';
+import AppNavBar from '@/components/layout/AppNavBar';
+import { useWallet } from '@/context/WalletContext';
+import { useChannelNFT, useGovernance } from '@/hooks/useContract';
+import { TESTNET_CHAIN_ID } from '@/lib/contracts/addresses';
+import Link from 'next/link';
 
 // Background animation component
 const BackgroundAnimation = () => {
     const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
 
     useEffect(() => {
-        const handleMouseMove = (e) => {
+        const handleMouseMove = (e: MouseEvent) => {
             setMousePosition({
                 x: (e.clientX / window.innerWidth) - 0.5,
                 y: (e.clientY / window.innerHeight) - 0.5
@@ -64,179 +65,411 @@ const BackgroundAnimation = () => {
     );
 };
 
-// Proposal Card Component
-const ProposalCard = ({ proposal, onVote, hasVoted, userShares, isConnected }) => {
-    const router = useRouter();
+// Network Switcher Component
+const NetworkSwitcher = ({
+    targetChainId = TESTNET_CHAIN_ID,
+    currentChainId
+}: {
+    targetChainId?: number;
+    currentChainId: number | null;
+}) => {
+    const [switching, setSwitching] = useState(false);
 
-    // Format timestamp to date
-    const formatDate = (timestamp) => {
-        return new Date(timestamp * 1000).toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-        });
+    const switchNetwork = async () => {
+        if (!window.ethereum) return;
+
+        try {
+            setSwitching(true);
+            await window.ethereum.request({
+                method: 'wallet_switchEthereumChain',
+                params: [{ chainId: `0x${targetChainId.toString(16)}` }],
+            });
+        } catch (error: any) {
+            // This error code indicates that the chain has not been added to MetaMask
+            if (error.code === 4902) {
+                try {
+                    await window.ethereum.request({
+                        method: 'wallet_addEthereumChain',
+                        params: [
+                            {
+                                chainId: `0x${targetChainId.toString(16)}`,
+                                chainName: 'Sonic Blaze Testnet',
+                                nativeCurrency: {
+                                    name: 'Sonic',
+                                    symbol: 'S',
+                                    decimals: 18,
+                                },
+                                rpcUrls: ['https://rpc.blaze.soniclabs.com'],
+                                blockExplorerUrls: ['https://testnet.sonicscan.org/'],
+                            },
+                        ],
+                    });
+                } catch (addError) {
+                    console.error('Error adding Sonic network:', addError);
+                }
+            }
+            console.error('Error switching to Sonic network:', error);
+        } finally {
+            setSwitching(false);
+        }
     };
 
-    // Calculate time left for voting
-    const calculateTimeLeft = (endTime) => {
-        const now = Math.floor(Date.now() / 1000);
-        const timeLeft = endTime - now;
+    const isOnCorrectNetwork = currentChainId === targetChainId;
 
-        if (timeLeft <= 0) return 'Voting ended';
+    if (isOnCorrectNetwork) return null;
 
-        const days = Math.floor(timeLeft / (60 * 60 * 24));
-        const hours = Math.floor((timeLeft % (60 * 60 * 24)) / (60 * 60));
+    return (
+        <div className="fixed bottom-4 right-4 z-40">
+            <div className="bg-[#1A1A24] border border-[#FF3D8A]/50 rounded-lg p-4 shadow-lg max-w-xs">
+                <div className="flex items-start">
+                    <div className="flex-shrink-0 pt-0.5">
+                        <svg className="h-5 w-5 text-[#FF3D8A]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                    </div>
+                    <div className="ml-3">
+                        <h3 className="text-sm font-medium text-white">Wrong Network</h3>
+                        <div className="mt-1 text-xs text-white/70">
+                            Please switch to the Sonic Blaze Testnet to interact with KnowScroll.
+                        </div>
+                        <div className="mt-2">
+                            <button
+                                onClick={switchNetwork}
+                                disabled={switching}
+                                className="text-xs inline-flex items-center py-1 px-3 bg-[#FF3D8A]/20 text-[#FF3D8A] rounded-md hover:bg-[#FF3D8A]/30 transition-colors disabled:opacity-50"
+                            >
+                                {switching ? (
+                                    <>
+                                        <svg className="animate-spin -ml-0.5 mr-1.5 h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Switching...
+                                    </>
+                                ) : (
+                                    'Switch to Sonic Blaze Testnet'
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
 
-        if (days > 0) return `${days}d ${hours}h left`;
+// Types
+interface Channel {
+    id: number;
+    name: string;
+    description: string;
+    category: string;
+    creator: string;
+    totalShares: number;
+    userShares?: number;
+    userSharePercentage?: number;
+    votingPower?: number;
+}
 
-        const minutes = Math.floor((timeLeft % (60 * 60)) / 60);
-        if (hours > 0) return `${hours}h ${minutes}m left`;
+interface Proposal {
+    id: number;
+    channelId: number;
+    description: string;
+    contentUri: string;
+    startTime: number;
+    endTime: number;
+    proposer: string;
+    forVotes: number;
+    againstVotes: number;
+    executed: boolean;
+    passed: boolean;
+    hasVoted?: boolean;
+    status: 'active' | 'ended' | 'executed';
+    forPercentage: number;
+    againstPercentage: number;
+}
 
-        return `${minutes}m left`;
-    };
+// Channel Selector Component
+const ChannelSelector = ({
+    channels,
+    selectedChannelId,
+    onSelect,
+    loading
+}: {
+    channels: Channel[];
+    selectedChannelId?: number;
+    onSelect: (channelId: number) => void;
+    loading: boolean;
+}) => {
+    if (loading) {
+        return (
+            <div className="p-4 text-center">
+                <div className="w-8 h-8 border-t-2 border-b-2 border-[#37E8FF] rounded-full animate-spin mx-auto mb-2"></div>
+                <div className="text-white/70 text-sm">Loading your channels...</div>
+            </div>
+        );
+    }
 
-    // Calculate vote percentages
-    const totalVotes = proposal.forVotes + proposal.againstVotes;
-    const forPercentage = totalVotes > 0 ? Math.round((proposal.forVotes / totalVotes) * 100) : 0;
-    const againstPercentage = totalVotes > 0 ? Math.round((proposal.againstVotes / totalVotes) * 100) : 0;
-
-    // Determine proposal status
-    const isVotingOpen = Math.floor(Date.now() / 1000) < proposal.endTime;
-    const isVotingClosed = !isVotingOpen;
-    const canVote = isConnected && isVotingOpen && !hasVoted && userShares > 0;
-
-    // Determine status tag properties
-    let statusTag;
-    if (proposal.executed) {
-        statusTag = {
-            text: proposal.passed ? 'Passed' : 'Failed',
-            color: proposal.passed ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'
-        };
-    } else if (isVotingClosed) {
-        statusTag = {
-            text: 'Ready for execution',
-            color: 'bg-yellow-500/20 text-yellow-500'
-        };
-    } else {
-        statusTag = {
-            text: 'Voting Active',
-            color: 'bg-[#37E8FF]/20 text-[#37E8FF]'
-        };
+    if (channels.length === 0) {
+        return (
+            <div className="p-4 text-center">
+                <p className="text-white/70 mb-4">You don't own shares in any channels.</p>
+                <Link
+                    href="/channels"
+                    className="inline-flex items-center px-4 py-2 bg-[#1A1A24] border border-white/10 rounded-lg hover:border-[#37E8FF]/30 transition-all"
+                >
+                    <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                    </svg>
+                    Browse Channels
+                </Link>
+            </div>
+        );
     }
 
     return (
-        <div className="bg-[#1A1A24]/60 backdrop-blur-sm border border-white/10 rounded-xl overflow-hidden hover:border-[#37E8FF]/20 transition-all">
-            {/* Proposal Header */}
+        <div className="space-y-2">
+            {channels.map(channel => (
+                <button
+                    key={channel.id}
+                    onClick={() => onSelect(channel.id)}
+                    className={`w-full flex items-center p-3 rounded-lg transition-all border text-left ${selectedChannelId === channel.id
+                        ? 'bg-[#1A1A24] border-[#37E8FF]/30'
+                        : 'bg-[#121218]/80 border-white/5 hover:border-white/20'
+                        }`}
+                >
+                    <div className="w-10 h-10 rounded-md bg-gradient-to-br from-[#37E8FF]/20 to-[#FF3D8A]/20 flex items-center justify-center mr-3">
+                        <span className="text-white/90 font-medium">#{channel.id}</span>
+                    </div>
+                    <div className="flex-1 overflow-hidden">
+                        <div className="font-medium truncate">{channel.name}</div>
+                        <div className="text-xs text-white/50">Voting Power: {channel.votingPower?.toFixed(2) || 0}%</div>
+                    </div>
+                </button>
+            ))}
+        </div>
+    );
+};
+
+// Proposal Card Component
+const ProposalCard = ({
+    proposal,
+    onVote,
+    onExecute,
+    isVoting,
+    isExecuting,
+    votedProposalId
+}: {
+    proposal: Proposal;
+    onVote: (proposalId: number, support: boolean) => void;
+    onExecute: (proposalId: number) => void;
+    isVoting: boolean;
+    isExecuting: boolean;
+    votedProposalId: number | null;
+}) => {
+    const [showVoteButtons, setShowVoteButtons] = useState(false);
+
+    // Format time remaining
+    const formatTimeRemaining = () => {
+        if (proposal.status !== 'active') return null;
+
+        const now = Math.floor(Date.now() / 1000);
+        const timeLeft = proposal.endTime - now;
+
+        if (timeLeft <= 0) return 'Ended';
+
+        const days = Math.floor(timeLeft / 86400);
+        const hours = Math.floor((timeLeft % 86400) / 3600);
+        const minutes = Math.floor((timeLeft % 3600) / 60);
+
+        if (days > 0) return `${days}d ${hours}h left`;
+        if (hours > 0) return `${hours}h ${minutes}m left`;
+        return `${minutes}m left`;
+    };
+
+    // Get status badge color and text
+    const getStatusBadge = () => {
+        switch (proposal.status) {
+            case 'active':
+                return {
+                    bg: 'bg-[#37E8FF]/20',
+                    text: 'text-[#37E8FF]',
+                    label: 'Active'
+                };
+            case 'ended':
+                return {
+                    bg: 'bg-yellow-500/20',
+                    text: 'text-yellow-500',
+                    label: 'Ended (Unexecuted)'
+                };
+            case 'executed':
+                return proposal.passed
+                    ? { bg: 'bg-green-500/20', text: 'text-green-500', label: 'Passed' }
+                    : { bg: 'bg-red-500/20', text: 'text-red-500', label: 'Failed' };
+            default:
+                return {
+                    bg: 'bg-white/20',
+                    text: 'text-white',
+                    label: 'Unknown'
+                };
+        }
+    };
+
+    const statusBadge = getStatusBadge();
+    const timeRemaining = formatTimeRemaining();
+    const isThisProposalVoting = isVoting && votedProposalId === proposal.id;
+    const isThisProposalExecuting = isExecuting && votedProposalId === proposal.id;
+
+    return (
+        <div className="bg-[#1A1A24]/60 backdrop-blur-sm border border-white/10 rounded-xl overflow-hidden hover:border-white/20 transition-all transform hover:translate-y-[-2px] duration-300">
             <div className="p-5">
-                <div className="flex justify-between items-start mb-4">
-                    <h3 className="font-bold text-xl">{proposal.description}</h3>
-                    <div className={`px-2.5 py-1 rounded-full text-xs ${statusTag.color}`}>
-                        {statusTag.text}
+                <div className="flex justify-between items-start mb-3">
+                    <div className={`px-2 py-1 rounded-full ${statusBadge.bg} ${statusBadge.text} text-xs`}>
+                        {statusBadge.label}
                     </div>
+
+                    {timeRemaining && (
+                        <div className="text-xs text-white/70">{timeRemaining}</div>
+                    )}
                 </div>
 
-                <div className="flex items-center text-white/60 text-sm mb-4">
-                    <div className="flex items-center mr-4">
-                        <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                        <span>Started: {formatDate(proposal.startTime)}</span>
-                    </div>
+                <h3 className="font-bold text-lg text-white mb-2">{proposal.description}</h3>
 
-                    <div className="flex items-center">
-                        <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span>{calculateTimeLeft(proposal.endTime)}</span>
-                    </div>
-                </div>
-
-                {/* Proposal Details */}
-                <div className="mb-6">
-                    <div className="flex items-center mb-2">
-                        <div className="w-6 h-6 rounded-full bg-[#121218] flex items-center justify-center mr-2">
-                            <svg className="w-3 h-3 text-white/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                <p className="text-white/70 text-sm mb-4">
+                    This proposal aims to update the channel content direction with new material.
+                    {proposal.contentUri && (
+                        <a
+                            href={proposal.contentUri}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-1 text-[#37E8FF] hover:underline inline-flex items-center"
+                        >
+                            View content plan
+                            <svg className="w-3 h-3 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                             </svg>
-                        </div>
-                        <span className="text-white/70 text-sm">Proposed by {proposal.proposer.substring(0, 6)}...{proposal.proposer.substring(proposal.proposer.length - 4)}</span>
+                        </a>
+                    )}
+                </p>
+
+                {/* Voting progress bar */}
+                <div className="mb-2">
+                    <div className="flex justify-between text-xs mb-1">
+                        <span className="text-white/70">For: {proposal.forVotes}</span>
+                        <span className="text-white/70">Against: {proposal.againstVotes}</span>
                     </div>
-
-                    <a
-                        href={proposal.contentUri}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[#37E8FF] text-sm flex items-center hover:underline"
-                    >
-                        <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                        </svg>
-                        View Proposal Content
-                    </a>
-                </div>
-
-                {/* Voting Results */}
-                <div className="mb-4">
-                    <div className="flex justify-between text-sm mb-1">
-                        <span className="text-white/70">Votes</span>
-                        <span className="font-medium">{totalVotes} total</span>
-                    </div>
-
-                    <div className="h-2 w-full bg-[#121218] rounded-full overflow-hidden mb-3">
-                        <div className="h-full bg-gradient-to-r from-[#37E8FF] to-[#37E8FF]/70" style={{ width: `${forPercentage}%` }}></div>
-                    </div>
-
-                    <div className="flex justify-between text-xs">
-                        <div className="flex items-center">
-                            <div className="w-2 h-2 rounded-full bg-[#37E8FF] mr-1.5"></div>
-                            <span className="text-white/70">For: {forPercentage}% ({proposal.forVotes} votes)</span>
-                        </div>
-                        <div className="flex items-center">
-                            <div className="w-2 h-2 rounded-full bg-white/40 mr-1.5"></div>
-                            <span className="text-white/70">Against: {againstPercentage}% ({proposal.againstVotes} votes)</span>
+                    <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
+                        <div className="flex h-full">
+                            <div
+                                className="h-full bg-green-500/70"
+                                style={{ width: `${proposal.forPercentage}%` }}
+                            ></div>
+                            <div
+                                className="h-full bg-red-500/70"
+                                style={{ width: `${proposal.againstPercentage}%` }}
+                            ></div>
                         </div>
                     </div>
                 </div>
 
-                {/* Voting Actions */}
-                {isVotingOpen && (
-                    <div className={`border-t border-white/10 pt-4 ${!canVote ? 'opacity-50' : ''}`}>
-                        {hasVoted ? (
-                            <div className="text-center text-white/70 text-sm py-1">You have already voted on this proposal</div>
-                        ) : userShares <= 0 ? (
-                            <div className="text-center text-white/70 text-sm py-1">You need channel shares to vote</div>
-                        ) : !isConnected ? (
-                            <div className="text-center text-white/70 text-sm py-1">Connect wallet to vote</div>
-                        ) : (
-                            <div className="flex space-x-3">
-                                <button
-                                    onClick={() => onVote(proposal.id, true)}
-                                    disabled={!canVote}
-                                    className="flex-1 py-2 bg-[#37E8FF]/20 text-[#37E8FF] rounded-lg font-medium text-sm hover:bg-[#37E8FF]/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    Vote For
-                                </button>
-                                <button
-                                    onClick={() => onVote(proposal.id, false)}
-                                    disabled={!canVote}
-                                    className="flex-1 py-2 bg-white/10 text-white rounded-lg font-medium text-sm hover:bg-white/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    Vote Against
-                                </button>
-                            </div>
-                        )}
+                {/* Voting buttons or execution button */}
+                {proposal.status === 'active' && !proposal.hasVoted && (
+                    showVoteButtons ? (
+                        <div className="flex space-x-2 items-center">
+                            <button
+                                onClick={() => {
+                                    onVote(proposal.id, true);
+                                    setShowVoteButtons(false);
+                                }}
+                                disabled={isVoting}
+                                className="flex-1 py-2 bg-green-500/20 text-green-500 rounded-lg font-medium text-sm hover:bg-green-500/30 transition-all disabled:opacity-50 flex justify-center items-center"
+                            >
+                                {isThisProposalVoting ? (
+                                    <>
+                                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Voting...
+                                    </>
+                                ) : (
+                                    'Vote For'
+                                )}
+                            </button>
+
+                            <button
+                                onClick={() => {
+                                    onVote(proposal.id, false);
+                                    setShowVoteButtons(false);
+                                }}
+                                disabled={isVoting}
+                                className="flex-1 py-2 bg-red-500/20 text-red-500 rounded-lg font-medium text-sm hover:bg-red-500/30 transition-all disabled:opacity-50 flex justify-center items-center"
+                            >
+                                {isThisProposalVoting ? (
+                                    <>
+                                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Voting...
+                                    </>
+                                ) : (
+                                    'Vote Against'
+                                )}
+                            </button>
+
+                            <button
+                                onClick={() => setShowVoteButtons(false)}
+                                disabled={isVoting}
+                                className="py-2 px-2 bg-[#121218] border border-white/10 text-white rounded-lg hover:border-white/30 transition-all disabled:opacity-50"
+                            >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                    ) : (
+                        <button
+                            onClick={() => setShowVoteButtons(true)}
+                            className="w-full py-2 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-lg font-medium text-sm hover:shadow-glow transition-all"
+                        >
+                            Cast Your Vote
+                        </button>
+                    )
+                )}
+
+                {proposal.status === 'active' && proposal.hasVoted && (
+                    <div className="text-center py-2 px-4 bg-[#121218] border border-white/10 rounded-lg text-sm">
+                        You've already voted on this proposal
                     </div>
                 )}
 
-                {/* Execute Proposal */}
-                {isVotingClosed && !proposal.executed && isConnected && (
-                    <div className="border-t border-white/10 pt-4">
-                        <button
-                            onClick={() => onVote(proposal.id, null, true)}
-                            className="w-full py-2 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-lg font-medium text-sm hover:shadow-glow transition-all"
-                        >
-                            Execute Proposal
-                        </button>
+                {proposal.status === 'ended' && !proposal.executed && (
+                    <button
+                        onClick={() => onExecute(proposal.id)}
+                        disabled={isExecuting}
+                        className="w-full py-2 bg-[#37E8FF] text-[#121218] rounded-lg font-medium text-sm hover:shadow-glow transition-all disabled:opacity-50 flex justify-center items-center"
+                    >
+                        {isThisProposalExecuting ? (
+                            <>
+                                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-[#121218]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Executing...
+                            </>
+                        ) : (
+                            'Execute Proposal'
+                        )}
+                    </button>
+                )}
+
+                {proposal.status === 'executed' && (
+                    <div className={`text-center py-2 px-4 rounded-lg text-sm ${proposal.passed
+                        ? 'bg-green-500/20 border border-green-500/30 text-green-500'
+                        : 'bg-red-500/20 border border-red-500/30 text-red-500'
+                        }`}>
+                        {proposal.passed ? 'Proposal passed' : 'Proposal failed'}
                     </div>
                 )}
             </div>
@@ -244,83 +477,105 @@ const ProposalCard = ({ proposal, onVote, hasVoted, userShares, isConnected }) =
     );
 };
 
-// Create Proposal Form Component
-const CreateProposalForm = ({ channelId, userShares, totalShares, proposalThreshold, onCreateProposal }) => {
+// Create Proposal Modal Component
+const CreateProposalModal = ({
+    channelId,
+    onClose,
+    onCreateProposal,
+    isCreating,
+    minVotingPeriod
+}: {
+    channelId: number;
+    onClose: () => void;
+    onCreateProposal: (proposalData: { description: string; contentUri: string; votingPeriod: number }) => Promise<void>;
+    isCreating: boolean;
+    minVotingPeriod: number;
+}) => {
     const [description, setDescription] = useState('');
     const [contentUri, setContentUri] = useState('');
-    const [votingPeriod, setVotingPeriod] = useState('86400'); // Default: 1 day in seconds
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [votingPeriod, setVotingPeriod] = useState(86400); // 24 hours in seconds (default)
 
-    // Calculate if user meets threshold
-    const userSharePercentage = (userShares / totalShares) * 10000; // In basis points (100% = 10000)
-    const meetsThreshold = userSharePercentage >= proposalThreshold;
+    // Voting period options
+    const votingPeriodOptions = [
+        { label: '1 day', value: 86400 },
+        { label: '3 days', value: 259200 },
+        { label: '1 week', value: 604800 },
+        { label: '2 weeks', value: 1209600 }
+    ];
 
-    const handleSubmit = async (e) => {
+    // Check if form is valid
+    const isValid = description.trim().length > 0 && contentUri.trim().length > 0 && votingPeriod >= minVotingPeriod;
+
+    // Handle form submission
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!isValid || isCreating) return;
 
-        if (!meetsThreshold) return;
+        await onCreateProposal({
+            description,
+            contentUri,
+            votingPeriod
+        });
+    };
 
-        setIsSubmitting(true);
+    // Calculate min voting period in a readable format
+    const formatMinVotingPeriod = () => {
+        const hours = Math.floor(minVotingPeriod / 3600);
+        if (hours < 24) return `${hours} hours`;
 
-        try {
-            await onCreateProposal(description, contentUri, parseInt(votingPeriod));
-
-            // Reset form on success
-            setDescription('');
-            setContentUri('');
-            setVotingPeriod('86400');
-        } catch (error) {
-            console.error("Error creating proposal:", error);
-        } finally {
-            setIsSubmitting(false);
-        }
+        const days = Math.floor(hours / 24);
+        return `${days} day${days !== 1 ? 's' : ''}`;
     };
 
     return (
-        <div className="bg-[#1A1A24]/60 backdrop-blur-sm border border-white/10 rounded-xl p-5">
-            <h3 className="text-xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A]">
-                Create New Proposal
-            </h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose}></div>
 
-            {!meetsThreshold ? (
-                <div className="bg-[#121218] rounded-lg p-4 mb-4">
-                    <div className="flex items-center text-yellow-400 mb-2">
-                        <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        <span className="font-medium">Threshold Not Met</span>
-                    </div>
-                    <p className="text-white/70 text-sm">
-                        You need at least {proposalThreshold / 100}% of shares to create a proposal.
-                        You currently own {(userSharePercentage / 100).toFixed(2)}% of shares.
-                    </p>
-                </div>
-            ) : (
-                <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Modal */}
+            <div className="relative bg-[#1A1A24] rounded-2xl border border-white/10 shadow-xl w-full max-w-lg p-6 overflow-y-auto max-h-[90vh]">
+                <button
+                    onClick={onClose}
+                    className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-all"
+                >
+                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+
+                <h2 className="text-xl font-bold mb-2 text-center bg-clip-text text-transparent bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A]">
+                    Create New Proposal
+                </h2>
+
+                <p className="text-white/70 text-center mb-6">
+                    For Channel #{channelId}
+                </p>
+
+                <form className="space-y-4" onSubmit={handleSubmit}>
                     <div>
                         <label className="block text-white/70 text-sm mb-1">Proposal Title</label>
                         <input
                             type="text"
+                            placeholder="Enter proposal title"
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
-                            placeholder="Enter proposal title"
-                            required
                             className="w-full px-4 py-2 bg-[#121218] rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white"
+                            required
                         />
                     </div>
 
                     <div>
-                        <label className="block text-white/70 text-sm mb-1">Content URI (IPFS or Other Link)</label>
+                        <label className="block text-white/70 text-sm mb-1">Content URI (IPFS or other content link)</label>
                         <input
                             type="text"
+                            placeholder="ipfs://... or https://..."
                             value={contentUri}
                             onChange={(e) => setContentUri(e.target.value)}
-                            placeholder="ipfs://... or https://..."
-                            required
                             className="w-full px-4 py-2 bg-[#121218] rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white"
+                            required
                         />
                         <p className="text-white/50 text-xs mt-1">
-                            Link to detailed proposal content (IPFS recommended)
+                            This should point to a document describing the proposed content direction.
                         </p>
                     </div>
 
@@ -328,543 +583,769 @@ const CreateProposalForm = ({ channelId, userShares, totalShares, proposalThresh
                         <label className="block text-white/70 text-sm mb-1">Voting Period</label>
                         <select
                             value={votingPeriod}
-                            onChange={(e) => setVotingPeriod(e.target.value)}
-                            className="w-full px-4 py-2 bg-[#121218] rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white"
+                            onChange={(e) => setVotingPeriod(parseInt(e.target.value))}
+                            className="w-full px-4 py-2 bg-[#121218] rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white appearance-none"
+                            required
                         >
-                            <option value="3600">1 hour</option>
-                            <option value="86400">1 day</option>
-                            <option value="259200">3 days</option>
-                            <option value="604800">1 week</option>
-                            <option value="1209600">2 weeks</option>
+                            {votingPeriodOptions.map(option => (
+                                <option
+                                    key={option.value}
+                                    value={option.value}
+                                    disabled={option.value < minVotingPeriod}
+                                >
+                                    {option.label} {option.value < minVotingPeriod ? `(min: ${formatMinVotingPeriod()})` : ''}
+                                </option>
+                            ))}
                         </select>
+                        <p className="text-white/50 text-xs mt-1">
+                            Minimum voting period is {formatMinVotingPeriod()}.
+                        </p>
                     </div>
 
-                    <button
-                        type="submit"
-                        disabled={isSubmitting || !meetsThreshold}
-                        className="w-full py-3 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-lg font-medium hover:shadow-glow transition-all disabled:opacity-70"
-                    >
-                        {isSubmitting ? 'Creating...' : 'Create Proposal'}
-                    </button>
+                    <div className="pt-4">
+                        <button
+                            type="submit"
+                            disabled={!isValid || isCreating}
+                            className="w-full py-3 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-lg font-medium hover:shadow-glow transition-all disabled:opacity-50 flex justify-center items-center"
+                        >
+                            {isCreating ? (
+                                <>
+                                    <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Creating Proposal...
+                                </>
+                            ) : (
+                                'Create Proposal'
+                            )}
+                        </button>
+                    </div>
+
+                    <div className="bg-[#121218] rounded-lg p-4 border border-white/10">
+                        <h4 className="font-medium text-white mb-2">What makes a good proposal?</h4>
+                        <ul className="text-white/70 text-sm space-y-2">
+                            <li className="flex items-start">
+                                <svg className="w-4 h-4 text-[#37E8FF] mt-0.5 mr-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span>Clear description of the proposed content direction</span>
+                            </li>
+                            <li className="flex items-start">
+                                <svg className="w-4 h-4 text-[#37E8FF] mt-0.5 mr-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span>Link to comprehensive content plan with examples</span>
+                            </li>
+                            <li className="flex items-start">
+                                <svg className="w-4 h-4 text-[#37E8FF] mt-0.5 mr-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span>Explanation of how the proposal benefits the channel</span>
+                            </li>
+                            <li className="flex items-start">
+                                <svg className="w-4 h-4 text-[#37E8FF] mt-0.5 mr-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span>Specific guidance for the AI content generator</span>
+                            </li>
+                            <li className="flex items-start">
+                                <svg className="w-4 h-4 text-[#37E8FF] mt-0.5 mr-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span>Reasonable voting period to allow all stakeholders to participate</span>
+                            </li>
+                        </ul>
+                    </div>
                 </form>
-            )}
+            </div>
         </div>
     );
 };
 
-// Main Governance Page Component
+// Governance Page Component
 export default function GovernancePage() {
+    const { isConnected, connect, account, chainId } = useWallet();
+    const { contract: channelNFT, loading: loadingNFT } = useChannelNFT();
+    const { contract: governance, loading: loadingGovernance } = useGovernance();
+
     const searchParams = useSearchParams();
-    const router = useRouter();
-    const channelId = searchParams.get('channel');
-    const { isConnected, account } = useWallet();
+    const channelParam = searchParams.get('channel');
 
-    // Hooks for accessing the smart contracts
-    const { contract: governanceContract, loading: governanceLoading } = useGovernance();
-    const { contract: channelNFTContract, loading: channelLoading } = useChannelNFT();
+    const [selectedChannelId, setSelectedChannelId] = useState<number | undefined>(
+        channelParam ? parseInt(channelParam) : undefined
+    );
 
-    // State variables
-    const [channel, setChannel] = useState(null);
-    const [proposals, setProposals] = useState([]);
-    const [proposalDetails, setProposalDetails] = useState({});
-    const [userVotes, setUserVotes] = useState({});
-    const [userShares, setUserShares] = useState(0);
-    const [totalShares, setTotalShares] = useState(0);
-    const [activeFilter, setActiveFilter] = useState('all');
-    const [proposalThreshold, setProposalThreshold] = useState(500); // Default: 5% in basis points
+    const [channels, setChannels] = useState<Channel[]>([]);
+    const [proposals, setProposals] = useState<Proposal[]>([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [creatingProposal, setCreatingProposal] = useState(false);
+    const [minVotingPeriod, setMinVotingPeriod] = useState(3600); // Default 1 hour
+    const [votingState, setVotingState] = useState({
+        isVoting: false,
+        proposalId: null as number | null
+    });
+    const [executingState, setExecutingState] = useState({
+        isExecuting: false,
+        proposalId: null as number | null
+    });
+    const [refreshCounter, setRefreshCounter] = useState(0);
+    const [error, setError] = useState<string | null>(null);
+    const [success, setSuccess] = useState<string | null>(null);
 
-    // Redirect if no channel ID is provided
+    // Fetch user's channels with voting power
     useEffect(() => {
-        if (!channelId) {
-            router.push('/channels');
-        }
-    }, [channelId, router]);
-
-    // Fetch channel data and proposal data
-    useEffect(() => {
-        const fetchData = async () => {
-            if (!channelId || !channelNFTContract || !governanceContract || governanceLoading || channelLoading) {
+        const fetchUserChannels = async () => {
+            if (!channelNFT || !account) {
+                setLoading(false);
                 return;
             }
 
-            setLoading(true);
-            setError(null);
-
             try {
-                // Fetch channel details
-                const channelDetails = await channelNFTContract.getChannel(channelId);
-                setChannel({
-                    id: channelId,
-                    name: channelDetails.name,
-                    description: channelDetails.description,
-                    category: channelDetails.category,
-                    creator: channelDetails.creator,
-                    totalShares: channelDetails.totalShares,
-                    createdAt: channelDetails.createdAt,
-                    active: channelDetails.active
-                });
+                setLoading(true);
 
-                // Fetch total shares
-                const shares = await channelNFTContract.getTotalShares(channelId);
-                setTotalShares(parseInt(shares.toString()));
+                // Get total number of channels
+                const totalChannelsData = await channelNFT.getTotalChannels();
+                const totalChannels = Number(totalChannelsData.toString());
 
-                // Fetch user shares if connected
-                if (isConnected && account) {
-                    const userShareBalance = await channelNFTContract.balanceOf(account, channelId);
-                    setUserShares(parseInt(userShareBalance.toString()));
+                if (totalChannels === 0) {
+                    setChannels([]);
+                    setLoading(false);
+                    return;
                 }
 
-                // Fetch governance proposal threshold
-                const threshold = await governanceContract.proposalThreshold();
-                setProposalThreshold(parseInt(threshold.toString()));
+                const fetchedChannels: Channel[] = [];
 
-                // Fetch all proposals for this channel
-                const proposalIds = await governanceContract.getChannelProposals(channelId);
-                setProposals(proposalIds.map(id => parseInt(id.toString())));
+                for (let i = 1; i <= totalChannels; i++) {
+                    try {
+                        // First check if user has shares in this channel
+                        const userShares = await channelNFT.balanceOf(account, i);
 
-                // Fetch details for each proposal
-                const details = {};
-                const votes = {};
+                        if (Number(userShares.toString()) > 0) {
+                            // User has shares, fetch channel details
+                            const channelData = await channelNFT.getChannel(i);
 
-                await Promise.all(
-                    proposalIds.map(async (id) => {
-                        // Get proposal details
-                        const proposal = await governanceContract.getProposalDetails(id);
-                        details[id.toString()] = {
-                            id: id,
-                            channelId: parseInt(proposal.channelId.toString()),
-                            description: proposal.description,
-                            contentUri: proposal.contentUri,
-                            startTime: parseInt(proposal.startTime.toString()),
-                            endTime: parseInt(proposal.endTime.toString()),
-                            proposer: proposal.proposer,
-                            forVotes: parseInt(proposal.forVotes.toString()),
-                            againstVotes: parseInt(proposal.againstVotes.toString()),
-                            executed: proposal.executed,
-                            passed: proposal.passed
-                        };
+                            // Calculate voting power
+                            const totalShares = Number(channelData.totalShares.toString());
+                            const votingPower = (Number(userShares.toString()) / totalShares) * 100;
 
-                        // Check if user has voted if connected
-                        if (isConnected && account) {
-                            const hasVoted = await governanceContract.hasVoted(id, account);
-                            votes[id.toString()] = hasVoted;
+                            const channel: Channel = {
+                                id: i,
+                                name: channelData.name,
+                                description: channelData.description,
+                                category: channelData.category,
+                                creator: channelData.creator,
+                                totalShares,
+                                userShares: Number(userShares.toString()),
+                                userSharePercentage: (Number(userShares.toString()) / totalShares) * 100,
+                                votingPower
+                            };
+
+                            fetchedChannels.push(channel);
                         }
-                    })
-                );
+                    } catch (error) {
+                        console.error(`Error processing channel ${i}:`, error);
+                    }
+                }
 
-                setProposalDetails(details);
-                setUserVotes(votes);
-            } catch (err) {
-                console.error("Error fetching governance data:", err);
-                setError("Failed to load governance data. Please try again.");
+                setChannels(fetchedChannels);
+
+                // If we have a selectedChannelId and it's not in the fetched channels, reset it
+                if (selectedChannelId && !fetchedChannels.some(c => c.id === selectedChannelId)) {
+                    setSelectedChannelId(undefined);
+                }
+
+            } catch (error) {
+                console.error("Error fetching user channels:", error);
             } finally {
                 setLoading(false);
             }
         };
 
-        fetchData();
-    }, [channelId, channelNFTContract, governanceContract, governanceLoading, channelLoading, isConnected, account]);
+        fetchUserChannels();
+    }, [channelNFT, account, refreshCounter]);
 
-    // Handle voting on a proposal
-    const handleVote = async (proposalId, support, isExecution = false) => {
-        if (!isConnected || !governanceContract) return;
-
-        try {
-            let tx;
-
-            if (isExecution) {
-                // Execute proposal
-                tx = await governanceContract.executeProposal(proposalId);
-            } else {
-                // Cast vote
-                tx = await governanceContract.castVote(proposalId, support);
+    // Fetch proposals for selected channel
+    useEffect(() => {
+        const fetchProposals = async () => {
+            if (!governance || !selectedChannelId) {
+                setProposals([]);
+                return;
             }
 
-            await tx.wait();
+            try {
+                setLoading(true);
 
-            // Update UI
-            if (isExecution) {
-                // Update executed status
-                setProposalDetails(prev => ({
-                    ...prev,
-                    [proposalId]: {
-                        ...prev[proposalId],
-                        executed: true,
-                        // We don't know if it passed yet, will be updated on next fetch
-                    }
-                }));
-            } else {
-                // Update user vote status
-                setUserVotes(prev => ({
-                    ...prev,
-                    [proposalId]: true
-                }));
+                // Get min voting period (for proposal creation)
+                try {
+                    const periodData = await governance.minVotingPeriod();
+                    setMinVotingPeriod(Number(periodData.toString()));
+                } catch (error) {
+                    console.error("Error fetching min voting period:", error);
+                }
 
-                // Update vote counts (simple approximation, will be properly updated on next fetch)
-                const voteWeight = userShares;
-                setProposalDetails(prev => ({
-                    ...prev,
-                    [proposalId]: {
-                        ...prev[proposalId],
-                        forVotes: support
-                            ? prev[proposalId].forVotes + voteWeight
-                            : prev[proposalId].forVotes,
-                        againstVotes: !support
-                            ? prev[proposalId].againstVotes + voteWeight
-                            : prev[proposalId].againstVotes
+                // Get proposals for this channel
+                const proposalIds = await governance.getChannelProposals(selectedChannelId);
+
+                if (proposalIds.length === 0) {
+                    setProposals([]);
+                    setLoading(false);
+                    return;
+                }
+
+                const fetchedProposals: Proposal[] = [];
+                const currentTime = Math.floor(Date.now() / 1000);
+
+                for (const idBN of proposalIds) {
+                    try {
+                        const id = Number(idBN.toString());
+                        const details = await governance.getProposalDetails(id);
+
+                        // Determine proposal status
+                        let status: 'active' | 'ended' | 'executed';
+                        if (details.executed) {
+                            status = 'executed';
+                        } else if (currentTime > Number(details.endTime.toString())) {
+                            status = 'ended';
+                        } else {
+                            status = 'active';
+                        }
+
+                        // Calculate voting percentages
+                        const totalVotes = Number(details.forVotes.toString()) + Number(details.againstVotes.toString());
+                        const forPercentage = totalVotes > 0 ? (Number(details.forVotes.toString()) / totalVotes) * 100 : 0;
+                        const againstPercentage = totalVotes > 0 ? (Number(details.againstVotes.toString()) / totalVotes) * 100 : 0;
+
+                        // Check if the current user has voted
+                        let hasVoted = false;
+                        if (account) {
+                            try {
+                                hasVoted = await governance.hasVoted(id, account);
+                            } catch (error) {
+                                console.error(`Error checking if user voted on proposal ${id}:`, error);
+                            }
+                        }
+
+                        const proposal: Proposal = {
+                            id,
+                            channelId: Number(details.channelId.toString()),
+                            description: details.description,
+                            contentUri: details.contentUri,
+                            startTime: Number(details.startTime.toString()),
+                            endTime: Number(details.endTime.toString()),
+                            proposer: details.proposer,
+                            forVotes: Number(details.forVotes.toString()),
+                            againstVotes: Number(details.againstVotes.toString()),
+                            executed: details.executed,
+                            passed: details.passed,
+                            hasVoted,
+                            status,
+                            forPercentage,
+                            againstPercentage
+                        };
+
+                        fetchedProposals.push(proposal);
+                    } catch (error) {
+                        console.error(`Error fetching proposal ${idBN.toString()}:`, error);
                     }
-                }));
+                }
+
+                // Sort proposals: active first, then ended unexecuted, then executed, and within each category by most recent first
+                fetchedProposals.sort((a, b) => {
+                    // Sort by status
+                    if (a.status !== b.status) {
+                        if (a.status === 'active') return -1;
+                        if (b.status === 'active') return 1;
+                        if (a.status === 'ended') return -1;
+                        if (b.status === 'ended') return 1;
+                    }
+
+                    // Within same status, sort by end time (most recent first)
+                    return b.endTime - a.endTime;
+                });
+
+                setProposals(fetchedProposals);
+
+            } catch (error) {
+                console.error("Error fetching proposals:", error);
+            } finally {
+                setLoading(false);
             }
-        } catch (error) {
-            console.error(`Error ${isExecution ? 'executing' : 'voting on'} proposal:`, error);
-            alert(`Failed to ${isExecution ? 'execute' : 'vote on'} proposal. See console for details.`);
-        }
+        };
+
+        fetchProposals();
+    }, [governance, selectedChannelId, account, refreshCounter]);
+
+    // Handle channel selection
+    const handleChannelSelect = (channelId: number) => {
+        setSelectedChannelId(channelId);
+        // Clear any error/success messages
+        setError(null);
+        setSuccess(null);
     };
 
-    // Handle creating a new proposal
-    const handleCreateProposal = async (description, contentUri, votingPeriod) => {
-        if (!isConnected || !governanceContract || !channelId) return;
+    // Handle proposal creation
+    const handleCreateProposal = async (proposalData: { description: string; contentUri: string; votingPeriod: number }) => {
+        if (!governance || !isConnected || !selectedChannelId) return;
 
         try {
-            const tx = await governanceContract.createProposal(
-                channelId,
-                description,
-                contentUri,
-                votingPeriod
+            setCreatingProposal(true);
+            setError(null);
+
+            // Create the proposal
+            const tx = await governance.createProposal(
+                selectedChannelId,
+                proposalData.description,
+                proposalData.contentUri,
+                proposalData.votingPeriod
             );
 
             await tx.wait();
 
-            // Refresh proposal list
-            const proposalIds = await governanceContract.getChannelProposals(channelId);
-            setProposals(proposalIds.map(id => parseInt(id.toString())));
+            // Close modal and refresh proposals
+            setShowCreateModal(false);
+            setRefreshCounter(prev => prev + 1);
+            setSuccess('Proposal created successfully! Stakeholders can now vote on it.');
 
-            // Get details of the new proposal
-            const newProposalId = proposalIds[proposalIds.length - 1];
-            const proposal = await governanceContract.getProposalDetails(newProposalId);
-
-            // Update proposal details
-            setProposalDetails(prev => ({
-                ...prev,
-                [newProposalId.toString()]: {
-                    id: newProposalId,
-                    channelId: parseInt(proposal.channelId.toString()),
-                    description: proposal.description,
-                    contentUri: proposal.contentUri,
-                    startTime: parseInt(proposal.startTime.toString()),
-                    endTime: parseInt(proposal.endTime.toString()),
-                    proposer: proposal.proposer,
-                    forVotes: parseInt(proposal.forVotes.toString()),
-                    againstVotes: parseInt(proposal.againstVotes.toString()),
-                    executed: proposal.executed,
-                    passed: proposal.passed
-                }
-            }));
-
-            return true;
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error creating proposal:", error);
-            alert("Failed to create proposal. See console for details.");
-            return false;
+
+            // Extract meaningful error message if possible
+            let errorMsg = "Failed to create proposal. Please try again.";
+            if (error.message && error.message.includes("below proposal threshold")) {
+                errorMsg = "You don't have enough voting power to create a proposal. The minimum threshold is 5% of total shares.";
+            }
+
+            setError(errorMsg);
+        } finally {
+            setCreatingProposal(false);
         }
     };
 
-    // Filter proposals based on active filter
-    const filteredProposals = Object.values(proposalDetails).filter(proposal => {
-        const now = Math.floor(Date.now() / 1000);
-        const isVotingOpen = now < proposal.endTime;
+    // Handle voting on a proposal
+    const handleVoteOnProposal = async (proposalId: number, support: boolean) => {
+        if (!governance || !isConnected) return;
 
-        switch (activeFilter) {
-            case 'active':
-                return isVotingOpen && !proposal.executed;
-            case 'executed':
-                return proposal.executed;
-            case 'pending':
-                return !isVotingOpen && !proposal.executed;
-            default:
-                return true;
+        try {
+            setVotingState({
+                isVoting: true,
+                proposalId
+            });
+            setError(null);
+
+            // Cast vote
+            const tx = await governance.castVote(proposalId, support);
+            await tx.wait();
+
+            // Refresh proposals
+            setRefreshCounter(prev => prev + 1);
+            setSuccess(`Vote cast successfully! You voted ${support ? 'for' : 'against'} the proposal.`);
+
+        } catch (error: any) {
+            console.error("Error voting on proposal:", error);
+
+            // Extract meaningful error message if possible
+            let errorMsg = "Failed to cast vote. Please try again.";
+            if (error.message && error.message.includes("voting ended")) {
+                errorMsg = "Voting period has ended for this proposal.";
+            } else if (error.message && error.message.includes("already voted")) {
+                errorMsg = "You have already voted on this proposal.";
+            }
+
+            setError(errorMsg);
+        } finally {
+            setVotingState({
+                isVoting: false,
+                proposalId: null
+            });
         }
-    }).sort((a, b) => {
-        // Sort by status (active first), then by newest
-        const aVotingOpen = Math.floor(Date.now() / 1000) < a.endTime;
-        const bVotingOpen = Math.floor(Date.now() / 1000) < b.endTime;
+    };
 
-        if (aVotingOpen && !bVotingOpen) return -1;
-        if (!aVotingOpen && bVotingOpen) return 1;
+    // Handle executing a proposal
+    const handleExecuteProposal = async (proposalId: number) => {
+        if (!governance || !isConnected) return;
 
-        return b.startTime - a.startTime;
-    });
+        try {
+            setExecutingState({
+                isExecuting: true,
+                proposalId
+            });
+            setError(null);
 
-    // Return loading state
-    if (loading) {
-        return (
-            <div className="min-h-screen bg-[#121218] text-white relative">
-                <BackgroundAnimation />
-                <AppNavBar />
+            // Execute proposal
+            const tx = await governance.executeProposal(proposalId);
+            await tx.wait();
 
-                <main className="max-w-screen-xl mx-auto px-4 py-12">
-                    <div className="flex flex-col items-center justify-center min-h-[60vh]">
-                        <div className="w-12 h-12 rounded-full border-t-2 border-r-2 border-[#37E8FF] animate-spin mb-4"></div>
-                        <p className="text-white/70">Loading governance data...</p>
-                    </div>
-                </main>
-            </div>
-        );
-    }
+            // Refresh proposals
+            setRefreshCounter(prev => prev + 1);
+            setSuccess('Proposal executed successfully!');
 
-    // Return error state
-    if (error) {
-        return (
-            <div className="min-h-screen bg-[#121218] text-white relative">
-                <BackgroundAnimation />
-                <AppNavBar />
+        } catch (error: any) {
+            console.error("Error executing proposal:", error);
 
-                <main className="max-w-screen-xl mx-auto px-4 py-12">
-                    <div className="flex flex-col items-center justify-center min-h-[60vh]">
-                        <div className="bg-red-500/20 text-red-500 p-4 rounded-lg mb-4">
-                            {error}
-                        </div>
-                        <Link
-                            href="/channels"
-                            className="px-6 py-3 bg-[#1A1A24] border border-white/10 rounded-full hover:border-[#37E8FF]/30 transition-all"
-                        >
-                            Return to Channels
-                        </Link>
-                    </div>
-                </main>
-            </div>
-        );
-    }
+            // Extract meaningful error message if possible
+            let errorMsg = "Failed to execute proposal. Please try again.";
+            if (error.message && error.message.includes("voting not ended")) {
+                errorMsg = "Voting period has not ended yet for this proposal.";
+            } else if (error.message && error.message.includes("already executed")) {
+                errorMsg = "This proposal has already been executed.";
+            }
+
+            setError(errorMsg);
+        } finally {
+            setExecutingState({
+                isExecuting: false,
+                proposalId: null
+            });
+        }
+    };
+
+    // Count proposal stats
+    const proposalStats = {
+        total: proposals.length,
+        active: proposals.filter(p => p.status === 'active').length,
+        passed: proposals.filter(p => p.status === 'executed' && p.passed).length,
+        failed: proposals.filter(p => p.status === 'executed' && !p.passed).length
+    };
 
     return (
         <div className="min-h-screen bg-[#121218] text-white relative">
             <BackgroundAnimation />
             <AppNavBar />
 
+            {/* Network Switcher */}
+            {isConnected && <NetworkSwitcher currentChainId={chainId} />}
+
             <main className="max-w-screen-xl mx-auto px-4 py-12">
-                {/* Channel Header Section */}
-                <div className="mb-8">
-                    <Link
-                        href={`/channels`}
-                        className="inline-flex items-center text-white/70 hover:text-white mb-4"
-                    >
-                        <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
-                        </svg>
-                        Back to Channels
-                    </Link>
-
-                    <div className="flex items-center mb-4">
-                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#37E8FF]/20 to-[#FF3D8A]/20 flex items-center justify-center mr-3 border border-white/10">
-                            <span className="font-bold text-white">#{channelId}</span>
+                {/* Header Section */}
+                <div className="relative z-10 mb-10">
+                    <div className="flex flex-col md:flex-row gap-2 mb-4">
+                        <div className="inline-flex items-center px-3 py-1 text-sm rounded-full bg-[#1A1A24]/80 backdrop-blur-sm border border-[#37E8FF]/20">
+                            <div className="w-2 h-2 rounded-full bg-[#37E8FF] mr-2 animate-pulse"></div>
+                            <span className="text-white/80">Channel Governance</span>
                         </div>
+
+                        <div className="inline-flex items-center px-3 py-1 text-sm rounded-full bg-[#FFB800]/20 backdrop-blur-sm border border-[#FFB800]/30">
+                            <span className="text-[#FFB800] font-medium">TESTNET MODE</span>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
                         <div>
-                            <h1 className="text-2xl font-bold">
-                                {channel?.name} <span className="text-white/50">Governance</span>
+                            <h1 className="text-4xl md:text-5xl font-bold mb-3">
+                                <span className="bg-clip-text text-transparent bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A]">
+                                    Channel Governance
+                                </span>
                             </h1>
-                            <div className="flex items-center text-white/70 text-sm">
-                                <div className="px-2 py-0.5 rounded-full bg-[#121218] border border-white/10 mr-2">
-                                    {channel?.category}
-                                </div>
-                                <div className="flex items-center">
-                                    <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                    </svg>
-                                    <span>{channel?.creator.substring(0, 6)}...{channel?.creator.substring(channel.creator.length - 4)}</span>
-                                </div>
-                            </div>
+
+                            <p className="text-white/70 text-lg max-w-2xl">
+                                Shape the future of content through democratic decision making. Create and vote on proposals to direct channel content.
+                            </p>
                         </div>
                     </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                        <div className="bg-[#1A1A24]/60 backdrop-blur-sm rounded-lg p-4 border border-white/5">
-                            <div className="text-white/60 text-xs mb-1">Total Shares</div>
-                            <div className="text-lg font-bold">{totalShares}</div>
-                        </div>
-
-                        <div className="bg-[#1A1A24]/60 backdrop-blur-sm rounded-lg p-4 border border-white/5">
-                            <div className="text-white/60 text-xs mb-1">Your Shares</div>
-                            <div className="flex items-end">
-                                <div className="text-lg font-bold mr-1">{userShares}</div>
-                                <div className="text-white/60 text-xs">({((userShares / totalShares) * 100).toFixed(2)}%)</div>
-                            </div>
-                        </div>
-
-                        <div className="bg-[#1A1A24]/60 backdrop-blur-sm rounded-lg p-4 border border-white/5">
-                            <div className="text-white/60 text-xs mb-1">Proposal Threshold</div>
-                            <div className="text-lg font-bold">{(proposalThreshold / 100).toFixed(1)}%</div>
-                        </div>
-
-                        <div className="bg-[#1A1A24]/60 backdrop-blur-sm rounded-lg p-4 border border-white/5">
-                            <div className="text-white/60 text-xs mb-1">Total Proposals</div>
-                            <div className="text-lg font-bold">{proposals.length}</div>
-                        </div>
-                    </div>
-
-                    <div className="h-px w-full bg-white/10 mb-6"></div>
                 </div>
 
-                {/* Main Content Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    {/* Proposals Column */}
-                    <div className="lg:col-span-2">
-                        {/* Filter Tabs */}
-                        <div className="flex mb-6 border-b border-white/10">
-                            <button
-                                onClick={() => setActiveFilter('all')}
-                                className={`px-4 py-2 text-sm font-medium ${activeFilter === 'all' ? 'text-white border-b-2 border-[#37E8FF]' : 'text-white/60 hover:text-white'}`}
-                            >
-                                All Proposals
-                            </button>
-                            <button
-                                onClick={() => setActiveFilter('active')}
-                                className={`px-4 py-2 text-sm font-medium ${activeFilter === 'active' ? 'text-white border-b-2 border-[#37E8FF]' : 'text-white/60 hover:text-white'}`}
-                            >
-                                Active Voting
-                            </button>
-                            <button
-                                onClick={() => setActiveFilter('pending')}
-                                className={`px-4 py-2 text-sm font-medium ${activeFilter === 'pending' ? 'text-white border-b-2 border-[#37E8FF]' : 'text-white/60 hover:text-white'}`}
-                            >
-                                Pending Execution
-                            </button>
-                            <button
-                                onClick={() => setActiveFilter('executed')}
-                                className={`px-4 py-2 text-sm font-medium ${activeFilter === 'executed' ? 'text-white border-b-2 border-[#37E8FF]' : 'text-white/60 hover:text-white'}`}
-                            >
-                                Executed
-                            </button>
-                        </div>
-
-                        {/* Proposals List */}
-                        {filteredProposals.length > 0 ? (
-                            <div className="space-y-6">
-                                {filteredProposals.map(proposal => (
-                                    <ProposalCard
-                                        key={proposal.id}
-                                        proposal={proposal}
-                                        onVote={handleVote}
-                                        hasVoted={userVotes[proposal.id.toString()]}
-                                        userShares={userShares}
-                                        isConnected={isConnected}
-                                    />
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="bg-[#1A1A24]/60 backdrop-blur-sm border border-white/10 rounded-xl p-8 text-center">
-                                <svg className="w-12 h-12 text-white/30 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                </svg>
-                                <h3 className="text-lg font-medium mb-2">No proposals found</h3>
-                                <p className="text-white/60 mb-4">
-                                    {activeFilter !== 'all'
-                                        ? `There are no ${activeFilter} proposals for this channel.`
-                                        : 'This channel does not have any proposals yet.'}
-                                </p>
-                                {activeFilter !== 'all' && (
-                                    <button
-                                        onClick={() => setActiveFilter('all')}
-                                        className="px-4 py-2 bg-[#121218] border border-white/10 rounded-lg text-sm hover:border-[#37E8FF]/30"
-                                    >
-                                        Show all proposals
-                                    </button>
-                                )}
-                            </div>
-                        )}
+                {/* Error/Success Message */}
+                {error && (
+                    <div className="mb-6 p-4 bg-[#FF3D8A]/10 border border-[#FF3D8A]/30 rounded-lg text-[#FF3D8A] flex items-start">
+                        <svg className="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <span>{error}</span>
                     </div>
+                )}
 
-                    {/* Sidebar */}
-                    <div className="space-y-6">
-                        {/* Create Proposal Form */}
-                        <CreateProposalForm
-                            channelId={parseInt(channelId)}
-                            userShares={userShares}
-                            totalShares={totalShares}
-                            proposalThreshold={proposalThreshold}
-                            onCreateProposal={handleCreateProposal}
-                        />
+                {success && (
+                    <div className="mb-6 p-4 bg-green-500/10 border border-green-500/30 rounded-lg text-green-500 flex items-start">
+                        <svg className="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>{success}</span>
+                    </div>
+                )}
 
-                        {/* Governance Info Card */}
-                        <div className="bg-[#1A1A24]/60 backdrop-blur-sm border border-white/10 rounded-xl p-5">
-                            <h3 className="text-lg font-bold mb-4">About Governance</h3>
+                {/* Governance introduction for non-connected users */}
+                {!isConnected && (
+                    <div className="mb-10 bg-[#1A1A24]/60 backdrop-blur-sm border border-white/10 rounded-2xl p-8">
+                        <div className="max-w-4xl mx-auto">
+                            <h2 className="text-2xl font-bold mb-6 text-center bg-clip-text text-transparent bg-gradient-to-r from-[#37E8FF] to-[#A742FF]">
+                                Decentralized Content Governance Explained
+                            </h2>
 
-                            <div className="space-y-4 text-white/70 text-sm">
-                                <p>
-                                    Channel governance allows stakeholders to collectively make decisions about content direction and channel operations.
+                            <div className="mb-8">
+                                <p className="text-white/80 mb-4">
+                                    KnowScroll's governance system allows channel stakeholders to collectively decide on content direction.
+                                    As a token holder, your voting power is proportional to your share ownership.
                                 </p>
 
-                                <div className="bg-[#121218] rounded-lg p-4">
-                                    <h4 className="font-medium mb-2">How It Works</h4>
-                                    <ol className="list-decimal list-inside space-y-2">
-                                        <li>Stakeholders with sufficient shares can create proposals</li>
-                                        <li>All shareholders can vote with voting power proportional to their stake</li>
-                                        <li>After voting period ends, proposals can be executed</li>
-                                        <li>Passed proposals will be implemented by the channel's AI algorithms</li>
-                                    </ol>
+                                <p className="text-white/80 mb-6">
+                                    <span className="text-[#37E8FF] font-medium">Approved proposals directly guide our AI agents</span> to automatically
+                                    generate educational videos and content. After a proposal passes, the AI will create draft content based on
+                                    the approved direction, which stakeholders can review before public release.
+                                </p>
+
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+                                    <div className="bg-[#121218]/80 rounded-xl p-5 border border-white/10 flex flex-col">
+                                        <div className="mb-4 flex justify-center">
+                                            <div className="w-12 h-12 rounded-lg bg-[#37E8FF]/10 flex items-center justify-center">
+                                                <svg className="w-6 h-6 text-[#37E8FF]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                </svg>
+                                            </div>
+                                        </div>
+                                        <h3 className="text-lg font-medium mb-2 text-center">Propose</h3>
+                                        <p className="text-white/70 text-sm text-center">
+                                            Any member with at least 5% ownership can create a proposal with a content direction plan.
+                                        </p>
+                                    </div>
+
+                                    <div className="bg-[#121218]/80 rounded-xl p-5 border border-white/10 flex flex-col">
+                                        <div className="mb-4 flex justify-center">
+                                            <div className="w-12 h-12 rounded-lg bg-[#FF3D8A]/10 flex items-center justify-center">
+                                                <svg className="w-6 h-6 text-[#FF3D8A]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M5 13l4 4L19 7" />
+                                                </svg>
+                                            </div>
+                                        </div>
+                                        <h3 className="text-lg font-medium mb-2 text-center">Vote</h3>
+                                        <p className="text-white/70 text-sm text-center">
+                                            Shareholders vote for or against proposals during the voting period.
+                                        </p>
+                                    </div>
+
+                                    <div className="bg-[#121218]/80 rounded-xl p-5 border border-white/10 flex flex-col">
+                                        <div className="mb-4 flex justify-center">
+                                            <div className="w-12 h-12 rounded-lg bg-[#A742FF]/10 flex items-center justify-center">
+                                                <svg className="w-6 h-6 text-[#A742FF]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                                                </svg>
+                                            </div>
+                                        </div>
+                                        <h3 className="text-lg font-medium mb-2 text-center">Execute</h3>
+                                        <p className="text-white/70 text-sm text-center">
+                                            After voting ends, passed proposals automatically direct the AI to create new content.
+                                        </p>
+                                    </div>
+
+                                    <div className="bg-[#121218]/80 rounded-xl p-5 border border-white/10 flex flex-col md:col-span-3">
+                                        <div className="mb-4 flex justify-center">
+                                            <div className="w-12 h-12 rounded-lg bg-[#FF9800]/10 flex items-center justify-center">
+                                                <svg className="w-6 h-6 text-[#FF9800]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                </svg>
+                                            </div>
+                                        </div>
+                                        <h3 className="text-lg font-medium mb-2 text-center">AI Content Creation</h3>
+                                        <p className="text-white/70 text-sm text-center">
+                                            Our AI automatically generates educational videos based on approved proposals. Stakeholders review draft content before it's published to the channel.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-center">
+                                <button
+                                    onClick={connect}
+                                    className="px-6 py-3 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-full font-medium hover:shadow-glow transition-all"
+                                >
+                                    Connect Wallet to Participate
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Main Grid Layout */}
+                {isConnected && (
+                    <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+                        {/* Sidebar */}
+                        <div>
+                            <div className="bg-[#1A1A24]/60 backdrop-blur-sm border border-white/10 rounded-2xl p-6 mb-6">
+                                <h2 className="text-xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-[#37E8FF] to-[#A742FF]">
+                                    Your Channels
+                                </h2>
+
+                                <p className="text-white/70 text-sm mb-4">
+                                    Select a channel to view and create proposals.
+                                </p>
+
+                                <div className="mb-6">
+                                    <ChannelSelector
+                                        channels={channels}
+                                        selectedChannelId={selectedChannelId}
+                                        onSelect={handleChannelSelect}
+                                        loading={loading}
+                                    />
                                 </div>
 
-                                <div className="bg-[#121218] rounded-lg p-4">
-                                    <h4 className="font-medium mb-2">Proposal Thresholds</h4>
-                                    <ul className="space-y-2">
-                                        <li>Create proposal: <span className="font-medium">{(proposalThreshold / 100).toFixed(1)}% of shares</span></li>
-                                        <li>Voting period: <span className="font-medium">Minimum 1 hour</span></li>
-                                        <li>Execution: <span className="font-medium">Simple majority (>50%)</span></li>
+                                {selectedChannelId && (
+                                    <div className="mt-6">
+                                        <button
+                                            onClick={() => setShowCreateModal(true)}
+                                            className="w-full py-3 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-lg font-medium hover:shadow-glow transition-all flex items-center justify-center"
+                                        >
+                                            <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                            </svg>
+                                            Create New Proposal
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Governance Info */}
+                            <div className="bg-[#1A1A24]/60 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
+                                <h3 className="text-lg font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-[#FF3D8A] to-[#A742FF]">
+                                    Governance Stats
+                                </h3>
+
+                                <div className="space-y-3 mb-6">
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-white/70">Total Proposals</span>
+                                        <span className="font-medium">{proposalStats.total}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-white/70">Active Voting</span>
+                                        <span className="font-medium">{proposalStats.active}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-white/70">Passed Proposals</span>
+                                        <span className="font-medium">{proposalStats.passed}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-white/70">Failed Proposals</span>
+                                        <span className="font-medium">{proposalStats.failed}</span>
+                                    </div>
+                                </div>
+
+                                <div className="bg-[#121218] p-4 rounded-lg border border-white/10">
+                                    <h4 className="font-medium mb-2">How It Works</h4>
+                                    <ul className="text-white/70 text-sm space-y-2">
+                                        <li className="flex items-start">
+                                            <span className="text-[#37E8FF] mr-2">1.</span>
+                                            <span>Propose content direction with a clear plan</span>
+                                        </li>
+                                        <li className="flex items-start">
+                                            <span className="text-[#37E8FF] mr-2">2.</span>
+                                            <span>Shareholders vote with weight based on shares</span>
+                                        </li>
+                                        <li className="flex items-start">
+                                            <span className="text-[#37E8FF] mr-2">3.</span>
+                                            <span>Majority vote determines content strategy</span>
+                                        </li>
+                                        <li className="flex items-start">
+                                            <span className="text-[#37E8FF] mr-2">4.</span>
+                                            <span>AI generates draft videos based on approved proposals</span>
+                                        </li>
+                                        <li className="flex items-start">
+                                            <span className="text-[#37E8FF] mr-2">5.</span>
+                                            <span>Stakeholders review drafts before public release</span>
+                                        </li>
                                     </ul>
                                 </div>
                             </div>
-
-                            <div className="mt-4">
-                                <Link
-                                    href={`/channels?id=${channelId}`}
-                                    className="inline-flex items-center text-[#37E8FF] hover:underline"
-                                >
-                                    <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                    View Channel Details
-                                </Link>
-                            </div>
                         </div>
 
-                        {/* Actions Card */}
-                        {isConnected ? (
-                            <div className="bg-[#1A1A24]/60 backdrop-blur-sm border border-white/10 rounded-xl p-5">
-                                <h3 className="text-lg font-bold mb-4">Channel Actions</h3>
+                        {/* Main Content */}
+                        <div className="lg:col-span-3">
+                            {selectedChannelId ? (
+                                <>
+                                    <div className="bg-[#1A1A24]/50 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
+                                        <h2 className="text-xl font-bold mb-6 flex items-center">
+                                            <span className="bg-clip-text text-transparent bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A]">
+                                                Channel #{selectedChannelId} Proposals
+                                            </span>
+                                            <div className="ml-3 h-px flex-grow bg-gradient-to-r from-[#37E8FF]/50 to-transparent"></div>
+                                        </h2>
 
-                                <div className="space-y-3">
-                                    <Link
-                                        href={`/marketplace?channel=${channelId}`}
-                                        className="block w-full py-3 px-4 bg-[#121218] border border-white/10 rounded-lg text-center hover:border-[#37E8FF]/30 transition-all"
-                                    >
-                                        Trade Channel Shares
-                                    </Link>
-                                    {channel?.creator.toLowerCase() === account?.toLowerCase() && (
-                                        <button
-                                            className="block w-full py-3 px-4 bg-[#121218] border border-white/10 rounded-lg text-center hover:border-[#37E8FF]/30 transition-all"
-                                        >
-                                            Manage Channel Settings
-                                        </button>
-                                    )}
+                                        {loading ? (
+                                            <div className="flex flex-col items-center justify-center py-12">
+                                                <div className="w-12 h-12 border-t-2 border-b-2 border-[#37E8FF] rounded-full animate-spin mb-4"></div>
+                                                <p className="text-white/70">Loading proposals...</p>
+                                            </div>
+                                        ) : proposals.length > 0 ? (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                {proposals.map(proposal => (
+                                                    <ProposalCard
+                                                        key={proposal.id}
+                                                        proposal={proposal}
+                                                        onVote={handleVoteOnProposal}
+                                                        onExecute={handleExecuteProposal}
+                                                        isVoting={votingState.isVoting}
+                                                        isExecuting={executingState.isExecuting}
+                                                        votedProposalId={votingState.proposalId || executingState.proposalId}
+                                                    />
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="bg-[#121218]/30 rounded-xl p-8 text-center border border-white/5">
+                                                <div className="w-16 h-16 rounded-full bg-[#1A1A24] border border-white/10 flex items-center justify-center mx-auto mb-4">
+                                                    <svg className="w-8 h-8 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                    </svg>
+                                                </div>
+                                                <h3 className="text-xl font-bold mb-2">No Proposals Yet</h3>
+                                                <p className="text-white/70 mb-6 max-w-md mx-auto">
+                                                    Be the first to propose a new content direction for this channel.
+                                                </p>
+                                                <button
+                                                    onClick={() => setShowCreateModal(true)}
+                                                    className="px-6 py-3 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-full font-medium hover:shadow-glow transition-all inline-flex items-center"
+                                                >
+                                                    <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                                    </svg>
+                                                    Create First Proposal
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="bg-[#1A1A24]/50 backdrop-blur-sm border border-white/10 rounded-2xl p-8 text-center">
+                                    <div className="max-w-md mx-auto">
+                                        <div className="w-20 h-20 rounded-full bg-[#121218] border border-white/10 flex items-center justify-center mx-auto mb-6">
+                                            <svg className="w-10 h-10 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
+                                            </svg>
+                                        </div>
+                                        <h2 className="text-2xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A]">
+                                            Select a Channel
+                                        </h2>
+                                        <p className="text-white/70 mb-6">
+                                            Choose a channel from the sidebar to view and create governance proposals.
+                                        </p>
+
+                                        {channels.length === 0 && !loading && (
+                                            <Link
+                                                href="/channels"
+                                                className="px-6 py-3 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-full font-medium hover:shadow-glow transition-all inline-flex items-center"
+                                            >
+                                                <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                                </svg>
+                                                Find Channels to Join
+                                            </Link>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        ) : (
-                            <div className="bg-[#1A1A24]/60 backdrop-blur-sm border border-white/10 rounded-xl p-5">
-                                <h3 className="text-lg font-bold mb-4">Connect Wallet</h3>
-                                <p className="text-white/70 text-sm mb-4">
-                                    Connect your wallet to participate in governance and vote on proposals.
-                                </p>
-                                <button
-                                    className="w-full py-3 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-lg font-medium hover:shadow-glow transition-all"
-                                >
-                                    Connect Wallet
-                                </button>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
-                </div>
+                )}
             </main>
+
+            {/* Create Proposal Modal */}
+            {showCreateModal && selectedChannelId && (
+                <CreateProposalModal
+                    channelId={selectedChannelId}
+                    onClose={() => setShowCreateModal(false)}
+                    onCreateProposal={handleCreateProposal}
+                    isCreating={creatingProposal}
+                    minVotingPeriod={minVotingPeriod}
+                />
+            )}
         </div>
     );
 }

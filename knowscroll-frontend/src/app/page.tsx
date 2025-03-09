@@ -1,107 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
+import AppNavBar from '@/components/layout/AppNavBar';
 import Link from 'next/link';
 import Image from 'next/image';
-
-const AppNavBar = () => {
-  const [showMenu, setShowMenu] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
-  const [account, setAccount] = useState('');
-
-  const connect = () => {
-    setIsConnected(true);
-    setAccount('0xf3b8...92e4');
-  };
-
-  const disconnect = () => {
-    setIsConnected(false);
-    setAccount('');
-  };
-
-  return (
-    <div className="bg-[#121218]/80 backdrop-blur-md text-white sticky top-0 z-50 border-b border-white/5">
-      <div className="max-w-screen-xl mx-auto px-4 py-4 flex justify-between items-center">
-        <Link href="/" className="flex items-center">
-          <span className="text-2xl font-bold bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-transparent bg-clip-text">
-            KnowScroll
-          </span>
-        </Link>
-
-        <div className="hidden md:flex items-center space-x-8">
-          <Link href="/explore" className="text-white/70 hover:text-white transition-colors">
-            Explore
-          </Link>
-          <Link href="/marketplace" className="text-white/70 hover:text-white transition-colors">
-            Marketplace
-          </Link>
-          <Link href="/create" className="text-white/70 hover:text-white transition-colors">
-            Create
-          </Link>
-
-          {isConnected ? (
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="flex items-center space-x-2 bg-[#1A1A24] px-4 py-2 rounded-full border border-[#37E8FF]/20 hover:border-[#37E8FF]/40 transition-all"
-            >
-              <div className="w-2 h-2 rounded-full bg-[#37E8FF]"></div>
-              <span className="text-sm">{account.substring(0, 6)}...{account.substring(account.length - 4)}</span>
-            </button>
-          ) : (
-            <button
-              onClick={connect}
-              className="bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white px-6 py-2 rounded-full text-sm font-medium hover:shadow-glow transition-all"
-            >
-              Connect Wallet
-            </button>
-          )}
-        </div>
-
-        <button className="md:hidden text-white">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-6 h-6">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </button>
-      </div>
-
-      {/* Dropdown menu */}
-      {showMenu && (
-        <div className="absolute right-4 mt-2 w-48 bg-[#1A1A24] rounded-lg shadow-lg overflow-hidden z-50 border border-[#37E8FF]/20">
-          <Link
-            href="/portfolio"
-            className="block px-4 py-3 text-sm text-white hover:bg-[#37E8FF]/10"
-            onClick={() => setShowMenu(false)}
-          >
-            My Portfolio
-          </Link>
-          <Link
-            href="/channels"
-            className="block px-4 py-3 text-sm text-white hover:bg-[#37E8FF]/10"
-            onClick={() => setShowMenu(false)}
-          >
-            My Channels
-          </Link>
-          <Link
-            href="/settings"
-            className="block px-4 py-3 text-sm text-white hover:bg-[#37E8FF]/10"
-            onClick={() => setShowMenu(false)}
-          >
-            Settings
-          </Link>
-          <button
-            onClick={() => {
-              disconnect();
-              setShowMenu(false);
-            }}
-            className="block w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-red-500/10"
-          >
-            Disconnect
-          </button>
-        </div>
-      )}
-    </div>
-  );
-};
 
 const HeroAnimation = () => {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -1010,7 +912,8 @@ export default function Home() {
                     </div>
 
                     {/* CTA Button */}
-                    <button className="w-full mt-4 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white py-3 rounded-lg font-medium hover:shadow-glow transition-all relative overflow-hidden group">
+                    <button className="w-full mt-4 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white py-3 rounded-lg font-medium hover:shadow-glow transition-all relative overflow-hidden group"
+                      onClick={() => window.location.href = '/marketplace'}>
                       <span className="relative z-10">Acquire Shares</span>
                       <div className="absolute inset-0 h-full w-0 bg-gradient-to-r from-[#A742FF] to-[#FF3D8A] transition-all duration-300 group-hover:w-full"></div>
                     </button>
@@ -1125,7 +1028,7 @@ export default function Home() {
             </div>
           </div>
         </div>
-      </main>
+      </main >
 
       <footer className="border-t border-white/10 py-12">
         <div className="max-w-screen-xl mx-auto px-4">
@@ -1173,6 +1076,6 @@ export default function Home() {
           </div>
         </div>
       </footer>
-    </div>
+    </div >
   );
 }

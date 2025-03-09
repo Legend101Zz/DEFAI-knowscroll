@@ -1,17 +1,35 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import AppNavBar from '@/components/layout/AppNavBar';
 import Link from 'next/link';
-import Image from 'next/image';
+import { ethers } from 'ethers';
+import AppNavBar from '@/components/layout/AppNavBar';
 import { useWallet } from '@/context/WalletContext';
+import { useChannelNFT, useRevenueDistribution } from '@/hooks/useContract';
+import { TESTNET_CHAIN_ID, TESTNET_NAME } from '@/lib/contracts/addresses';
+
+// Types
+interface Channel {
+    id: number;
+    name: string;
+    description: string;
+    category: string;
+    creator: string;
+    totalShares: number;
+    createdAt: number;
+    active: boolean;
+    userShares?: number;
+    userSharePercentage?: number;
+    claimableRevenue?: number;
+    transactionHash?: string;
+}
 
 // Background animation component to match homepage style
 const BackgroundAnimation = () => {
     const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
 
     useEffect(() => {
-        const handleMouseMove = (e) => {
+        const handleMouseMove = (e: MouseEvent) => {
             setMousePosition({
                 x: (e.clientX / window.innerWidth) - 0.5,
                 y: (e.clientY / window.innerHeight) - 0.5
@@ -63,9 +81,17 @@ const BackgroundAnimation = () => {
 };
 
 // Channel Card Component
-const ChannelCard = ({ channel, isOwned = false, onSelectChannel }) => {
+const ChannelCard = ({
+    channel,
+    isOwned = false,
+    onSelectChannel
+}: {
+    channel: Channel;
+    isOwned?: boolean;
+    onSelectChannel: (channel: Channel) => void
+}) => {
     // Categories would be mapped to different colors for visual variety
-    const categoryColors = {
+    const categoryColors: Record<string, string> = {
         'Education': 'from-[#37E8FF] to-[#20A4FF]',
         'Science': 'from-[#FF3D8A] to-[#FF698C]',
         'History': 'from-[#A742FF] to-[#C278FF]',
@@ -75,6 +101,11 @@ const ChannelCard = ({ channel, isOwned = false, onSelectChannel }) => {
     };
 
     const categoryColor = categoryColors[channel.category] || 'from-[#37E8FF] to-[#FF3D8A]';
+
+    // Sonic Explorer URL
+    const getExplorerUrl = (hash: string) => {
+        return `https://testnet.sonicscan.org/tx/${hash}`;
+    };
 
     return (
         <div className="bg-[#1A1A24]/60 backdrop-blur-sm border border-white/10 rounded-2xl overflow-hidden hover:border-[#37E8FF]/30 transition-all transform hover:translate-y-[-5px] duration-300">
@@ -97,7 +128,7 @@ const ChannelCard = ({ channel, isOwned = false, onSelectChannel }) => {
                 {/* Ownership Badge (if applicable) */}
                 {isOwned && (
                     <div className="absolute top-3 right-3 bg-[#37E8FF]/30 backdrop-blur-sm px-3 py-1 rounded-full text-xs text-[#37E8FF]">
-                        You own {channel.userShares || 0}%
+                        You own {channel.userSharePercentage?.toFixed(2) || 0}%
                     </div>
                 )}
             </div>
@@ -120,14 +151,35 @@ const ChannelCard = ({ channel, isOwned = false, onSelectChannel }) => {
                         <div className="font-bold">{channel.totalShares}</div>
                     </div>
                     <div className="bg-[#121218] rounded-lg p-2 text-center">
-                        <div className="text-xs text-white/60">Shareholders</div>
-                        <div className="font-bold">{channel.shareholders || '--'}</div>
+                        <div className="text-xs text-white/60">Creator</div>
+                        <div className="font-bold truncate text-xs" title={channel.creator}>
+                            {channel.creator.substring(0, 6)}...{channel.creator.substring(channel.creator.length - 4)}
+                        </div>
                     </div>
                     <div className="bg-[#121218] rounded-lg p-2 text-center">
-                        <div className="text-xs text-white/60">Revenue</div>
-                        <div className="font-bold">{channel.revenueToDate || '--'} S</div>
+                        <div className="text-xs text-white/60">Created</div>
+                        <div className="font-bold text-xs">
+                            {new Date(channel.createdAt * 1000).toLocaleDateString()}
+                        </div>
                     </div>
                 </div>
+
+                {/* Blockchain Metadata */}
+                {channel.transactionHash && (
+                    <div className="mb-4">
+                        <a
+                            href={getExplorerUrl(channel.transactionHash)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-[#37E8FF] hover:underline flex items-center"
+                        >
+                            <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                            View on Sonic Testnet Explorer
+                        </a>
+                    </div>
+                )}
 
                 {/* Action Buttons */}
                 <div className="flex space-x-3">
@@ -150,40 +202,42 @@ const ChannelCard = ({ channel, isOwned = false, onSelectChannel }) => {
 };
 
 // Channel Details Modal Component
-const ChannelDetailsModal = ({ channel, onClose, onBuyShares, isConnected }) => {
-    const [shareAmount, setShareAmount] = useState('');
+const ChannelDetailsModal = ({
+    channel,
+    onClose,
+    isConnected,
+    onClaimRevenue
+}: {
+    channel: Channel;
+    onClose: () => void;
+    isConnected: boolean;
+    onClaimRevenue: (channelId: number) => Promise<void>;
+}) => {
+    const [loadingClaim, setLoadingClaim] = useState(false);
 
-    // Mock data that would come from blockchain
-    const revenueHistory = [
-        { period: 'Last 24h', amount: '0.042' },
-        { period: 'Last Week', amount: '0.376' },
-        { period: 'Last Month', amount: '1.248' }
-    ];
+    // Sonic Testnet Explorer URL
+    const getExplorerUrl = (address: string) => {
+        return `https://testnet.sonicscan.org/address/${address}`;
+    };
 
-    const shareholdersList = [
-        { address: '0x7a2...3f8e', shares: '25%', isCreator: true },
-        { address: '0x3b1...9c7a', shares: '15%' },
-        { address: '0xd4f...6e2b', shares: '10%' },
-        { address: '0x9a5...7c1d', shares: '5%' }
-    ];
+    // Format addresses for display
+    const formatAddress = (address: string) => {
+        return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+    };
 
-    // Governance proposals
-    const proposals = [
-        {
-            id: 1,
-            title: 'Add historical space missions series',
-            status: 'Active',
-            votesFor: 65,
-            votesAgainst: 15
-        },
-        {
-            id: 2,
-            title: 'Focus more on quantum physics explanations',
-            status: 'Passed',
-            votesFor: 78,
-            votesAgainst: 12
+    // Handle claim revenue action
+    const handleClaimRevenue = async () => {
+        if (!isConnected || !channel.claimableRevenue) return;
+
+        try {
+            setLoadingClaim(true);
+            await onClaimRevenue(channel.id);
+        } catch (error) {
+            console.error("Failed to claim revenue:", error);
+        } finally {
+            setLoadingClaim(false);
         }
-    ];
+    };
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -228,64 +282,50 @@ const ChannelDetailsModal = ({ channel, onClose, onBuyShares, isConnected }) => 
                                 <p className="text-white/70">{channel.description}</p>
                             </div>
 
-                            {/* Channel Details Tabs */}
+                            {/* Channel Details */}
                             <div className="bg-[#121218]/60 rounded-xl p-5 mb-6">
-                                <div className="flex border-b border-white/10 mb-4">
-                                    <button className="px-4 py-2 border-b-2 border-[#37E8FF] text-white font-medium">Performance</button>
-                                    <button className="px-4 py-2 text-white/60 hover:text-white transition-colors">Governance</button>
-                                    <button className="px-4 py-2 text-white/60 hover:text-white transition-colors">Content</button>
-                                </div>
+                                <div className="mb-4">
+                                    <h4 className="text-sm font-medium text-white/70 mb-3">CHANNEL DETAILS</h4>
 
-                                {/* Revenue Performance */}
-                                <div>
-                                    <h4 className="text-sm font-medium text-white/70 mb-3">REVENUE HISTORY</h4>
-                                    <div className="space-y-2 mb-4">
-                                        {revenueHistory.map((item, index) => (
-                                            <div key={index} className="flex justify-between items-center py-2 border-b border-white/5">
-                                                <span className="text-white/70">{item.period}</span>
-                                                <span className="font-medium">{item.amount} S</span>
-                                            </div>
-                                        ))}
-                                    </div>
-
-                                    {/* Channel Stats */}
-                                    <div className="grid grid-cols-2 gap-4 mb-4">
-                                        <div className="bg-[#121218] rounded-lg p-3">
-                                            <div className="text-white/60 text-xs mb-1">Creation Date</div>
-                                            <div className="font-medium">{new Date(channel.createdAt * 1000).toLocaleDateString()}</div>
+                                    {/* Channel Blockchain Information */}
+                                    <div className="space-y-2 mb-6">
+                                        <div className="flex justify-between items-center py-2 border-b border-white/5">
+                                            <span className="text-white/70">Creator Address</span>
+                                            <a
+                                                href={getExplorerUrl(channel.creator)}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="font-medium text-[#37E8FF] hover:underline"
+                                            >
+                                                {formatAddress(channel.creator)}
+                                            </a>
                                         </div>
-                                        <div className="bg-[#121218] rounded-lg p-3">
-                                            <div className="text-white/60 text-xs mb-1">Channel Status</div>
-                                            <div className="font-medium flex items-center">
+                                        <div className="flex justify-between items-center py-2 border-b border-white/5">
+                                            <span className="text-white/70">Creation Date</span>
+                                            <span className="font-medium">{new Date(channel.createdAt * 1000).toLocaleString()}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center py-2 border-b border-white/5">
+                                            <span className="text-white/70">Creation Transaction</span>
+                                            {channel.transactionHash ? (
+                                                <a
+                                                    href={`https://sonicscan.org/tx/${channel.transactionHash}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="font-medium text-[#37E8FF] hover:underline"
+                                                >
+                                                    {channel.transactionHash.substring(0, 10)}...
+                                                </a>
+                                            ) : (
+                                                <span className="font-medium text-white/50">Not available</span>
+                                            )}
+                                        </div>
+                                        <div className="flex justify-between items-center py-2 border-b border-white/5">
+                                            <span className="text-white/70">Active Status</span>
+                                            <span className="font-medium flex items-center">
                                                 <span className={`w-2 h-2 rounded-full ${channel.active ? 'bg-green-500' : 'bg-red-500'} mr-1.5`}></span>
                                                 {channel.active ? 'Active' : 'Inactive'}
-                                            </div>
+                                            </span>
                                         </div>
-                                    </div>
-
-                                    {/* Governance Proposals */}
-                                    <h4 className="text-sm font-medium text-white/70 mb-3 mt-6">GOVERNANCE PROPOSALS</h4>
-                                    <div className="space-y-3">
-                                        {proposals.map((proposal) => (
-                                            <div key={proposal.id} className="bg-[#121218] rounded-lg p-3">
-                                                <div className="flex justify-between items-start mb-2">
-                                                    <div className="font-medium">{proposal.title}</div>
-                                                    <div className={`px-2 py-0.5 rounded-full text-xs ${proposal.status === 'Active' ? 'bg-[#37E8FF]/10 text-[#37E8FF]' : 'bg-green-500/10 text-green-500'}`}>
-                                                        {proposal.status}
-                                                    </div>
-                                                </div>
-                                                <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden">
-                                                    <div
-                                                        className="h-full bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A]"
-                                                        style={{ width: `${(proposal.votesFor / (proposal.votesFor + proposal.votesAgainst)) * 100}%` }}
-                                                    ></div>
-                                                </div>
-                                                <div className="flex justify-between mt-1 text-xs text-white/60">
-                                                    <span>For: {proposal.votesFor}%</span>
-                                                    <span>Against: {proposal.votesAgainst}%</span>
-                                                </div>
-                                            </div>
-                                        ))}
                                     </div>
                                 </div>
                             </div>
@@ -307,19 +347,33 @@ const ChannelDetailsModal = ({ channel, onClose, onBuyShares, isConnected }) => 
                                     </div>
                                     <div className="flex justify-between">
                                         <span className="text-white/70">Share of Revenue</span>
-                                        <span className="font-medium">{channel.userSharePercentage || '0'}%</span>
+                                        <span className="font-medium">{channel.userSharePercentage?.toFixed(2) || '0'}%</span>
                                     </div>
                                     <div className="flex justify-between">
                                         <span className="text-white/70">Claimable Revenue</span>
-                                        <span className="font-medium">{channel.claimableRevenue || '0'} S</span>
+                                        <span className="font-medium">{channel.claimableRevenue?.toFixed(6) || '0'} S</span>
                                     </div>
                                 </div>
 
                                 {isConnected ? (
                                     <div className="space-y-3">
-                                        {channel.claimableRevenue > 0 && (
-                                            <button className="w-full py-2 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-lg font-medium hover:shadow-glow transition-all">
-                                                Claim Revenue
+                                        {channel.claimableRevenue && channel.claimableRevenue > 0 && (
+                                            <button
+                                                className="w-full py-2 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-lg font-medium hover:shadow-glow transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center"
+                                                onClick={handleClaimRevenue}
+                                                disabled={loadingClaim}
+                                            >
+                                                {loadingClaim ? (
+                                                    <>
+                                                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                        </svg>
+                                                        Claiming...
+                                                    </>
+                                                ) : (
+                                                    'Claim Revenue'
+                                                )}
                                             </button>
                                         )}
 
@@ -340,40 +394,242 @@ const ChannelDetailsModal = ({ channel, onClose, onBuyShares, isConnected }) => 
                                         </div>
                                     </div>
                                 ) : (
-                                    <button className="w-full py-2 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-lg font-medium hover:shadow-glow transition-all">
-                                        Connect Wallet
+                                    <button
+                                        className="w-full py-2 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-lg font-medium hover:shadow-glow transition-all"
+                                        onClick={onClose}
+                                    >
+                                        Connect Wallet to Interact
                                     </button>
                                 )}
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
 
-                            {/* Shareholders List */}
-                            <div className="bg-[#121218]/60 rounded-xl p-5">
-                                <h3 className="text-lg font-bold mb-4">Top Shareholders</h3>
-                                <div className="space-y-2">
-                                    {shareholdersList.map((shareholder, index) => (
-                                        <div key={index} className="flex justify-between items-center py-2 border-b border-white/5 last:border-b-0">
-                                            <div className="flex items-center">
-                                                <div className="w-8 h-8 rounded-full bg-[#1A1A24] flex items-center justify-center mr-2">
-                                                    <svg className="w-4 h-4 text-white/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
-                                                    </svg>
-                                                </div>
-                                                <div>
-                                                    <div className="text-sm font-medium flex items-center">
-                                                        {shareholder.address}
-                                                        {shareholder.isCreator && (
-                                                            <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] bg-[#FF3D8A]/20 text-[#FF3D8A]">
-                                                                Creator
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="font-medium">{shareholder.shares}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
+// Create Channel Modal Component
+const CreateChannelModal = ({
+    onClose,
+    onCreateChannel,
+    isCreating
+}: {
+    onClose: () => void;
+    onCreateChannel: (channelData: { name: string; description: string; category: string; initialShares: number }) => Promise<void>;
+    isCreating: boolean;
+}) => {
+    const [name, setName] = useState('');
+    const [description, setDescription] = useState('');
+    const [category, setCategory] = useState('');
+    const [initialShares, setInitialShares] = useState(100);
+
+    // Form validation
+    const isValid = name.trim() !== '' && description.trim() !== '' && category !== '' && initialShares > 0;
+
+    // Categories list
+    const categories = ['Science', 'History', 'Technology', 'Finance', 'Art', 'Education'];
+
+    // Handle form submission
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!isValid || isCreating) return;
+
+        await onCreateChannel({
+            name,
+            description,
+            category,
+            initialShares
+        });
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose}></div>
+
+            {/* Modal */}
+            <div className="relative bg-[#1A1A24] rounded-2xl border border-white/10 shadow-xl w-full max-w-lg p-6">
+                <button
+                    onClick={onClose}
+                    className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-all"
+                >
+                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+
+                <h2 className="text-xl font-bold mb-6 text-center bg-clip-text text-transparent bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A]">
+                    Create New Channel
+                </h2>
+
+                <form className="space-y-4" onSubmit={handleSubmit}>
+                    <div>
+                        <label className="block text-white/70 text-sm mb-1">Channel Name</label>
+                        <input
+                            type="text"
+                            placeholder="Enter channel name"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            className="w-full px-4 py-2 bg-[#121218] rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white"
+                            required
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-white/70 text-sm mb-1">Description</label>
+                        <textarea
+                            placeholder="Describe your channel content"
+                            rows={4}
+                            value={description}
+                            onChange={(e) => setDescription(e.target.value)}
+                            className="w-full px-4 py-2 bg-[#121218] rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white resize-none"
+                            required
+                        ></textarea>
+                    </div>
+
+                    <div>
+                        <label className="block text-white/70 text-sm mb-1">Category</label>
+                        <select
+                            value={category}
+                            onChange={(e) => setCategory(e.target.value)}
+                            className="w-full px-4 py-2 bg-[#121218] rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white appearance-none"
+                            required
+                        >
+                            <option value="">Select a category</option>
+                            {categories.map(cat => (
+                                <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="block text-white/70 text-sm mb-1">Initial Shares</label>
+                        <input
+                            type="number"
+                            placeholder="100"
+                            min="1"
+                            value={initialShares}
+                            onChange={(e) => setInitialShares(parseInt(e.target.value))}
+                            className="w-full px-4 py-2 bg-[#121218] rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white"
+                            required
+                        />
+                        <p className="text-white/50 text-xs mt-1">
+                            You'll initially own 100% of these shares.
+                        </p>
+                    </div>
+
+                    <div className="pt-4">
+                        <button
+                            type="submit"
+                            disabled={!isValid || isCreating}
+                            className="w-full py-3 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-lg font-medium hover:shadow-glow transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center"
+                        >
+                            {isCreating ? (
+                                <>
+                                    <svg className="animate-spin -ml-1 mr-2 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Creating Channel...
+                                </>
+                            ) : (
+                                'Create Channel'
+                            )}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+// Network Switcher Component
+const NetworkSwitcher = ({
+    targetChainId = TESTNET_CHAIN_ID,
+    currentChainId
+}: {
+    targetChainId?: number;
+    currentChainId: number | null;
+}) => {
+    const [switching, setSwitching] = useState(false);
+
+    const switchNetwork = async () => {
+        if (!window.ethereum) return;
+
+        try {
+            setSwitching(true);
+            await window.ethereum.request({
+                method: 'wallet_switchEthereumChain',
+                params: [{ chainId: `0x${targetChainId.toString(16)}` }],
+            });
+        } catch (error: any) {
+            // This error code indicates that the chain has not been added to MetaMask
+            if (error.code === 4902) {
+                try {
+                    await window.ethereum.request({
+                        method: 'wallet_addEthereumChain',
+                        params: [
+                            {
+                                chainId: `0x${targetChainId.toString(16)}`,
+                                chainName: 'Sonic Blaze Testnet',
+                                nativeCurrency: {
+                                    name: 'Sonic',
+                                    symbol: 'S',
+                                    decimals: 18,
+                                },
+                                rpcUrls: ['https://rpc.blaze.soniclabs.com'],
+                                blockExplorerUrls: ['https://testnet.sonicscan.org/'],
+                            },
+                        ],
+                    });
+                } catch (addError) {
+                    console.error('Error adding Sonic network:', addError);
+                }
+            }
+            console.error('Error switching to Sonic network:', error);
+        } finally {
+            setSwitching(false);
+        }
+    };
+
+    const isOnCorrectNetwork = currentChainId === targetChainId;
+
+    if (isOnCorrectNetwork) return null;
+
+    return (
+        <div className="fixed bottom-4 right-4 z-40">
+            <div className="bg-[#1A1A24] border border-[#FF3D8A]/50 rounded-lg p-4 shadow-lg max-w-xs">
+                <div className="flex items-start">
+                    <div className="flex-shrink-0 pt-0.5">
+                        <svg className="h-5 w-5 text-[#FF3D8A]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                    </div>
+                    <div className="ml-3">
+                        <h3 className="text-sm font-medium text-white">Wrong Network</h3>
+                        <div className="mt-1 text-xs text-white/70">
+                            Please switch to the Sonic Blaze Testnet to interact with KnowScroll.
+                        </div>
+                        <div className="mt-2">
+                            <button
+                                onClick={switchNetwork}
+                                disabled={switching}
+                                className="text-xs inline-flex items-center py-1 px-3 bg-[#FF3D8A]/20 text-[#FF3D8A] rounded-md hover:bg-[#FF3D8A]/30 transition-colors disabled:opacity-50"
+                            >
+                                {switching ? (
+                                    <>
+                                        <svg className="animate-spin -ml-0.5 mr-1.5 h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Switching...
+                                    </>
+                                ) : (
+                                    'Switch to Sonic Blaze Testnet'
+                                )}
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -384,121 +640,216 @@ const ChannelDetailsModal = ({ channel, onClose, onBuyShares, isConnected }) => 
 
 // Main Channels Page Component
 export default function ChannelsPage() {
-    const { isConnected } = useWallet();
-    const [channels, setChannels] = useState([]);
+    const { isConnected, account, connect, chainId } = useWallet();
+    const { contract: channelNFT, loading: loadingNFT } = useChannelNFT();
+    const { contract: revenueDistribution } = useRevenueDistribution();
+
+    const [channels, setChannels] = useState<Channel[]>([]);
     const [loading, setLoading] = useState(true);
-    const [selectedChannel, setSelectedChannel] = useState(null);
+    const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
     const [filterCategory, setFilterCategory] = useState('all');
     const [sortOption, setSortOption] = useState('newest');
     const [searchQuery, setSearchQuery] = useState('');
     const [newChannelModal, setNewChannelModal] = useState(false);
+    const [isCreatingChannel, setIsCreatingChannel] = useState(false);
+    const [statsData, setStatsData] = useState({
+        totalChannels: 0,
+        totalShares: 0,
+        totalCreators: 0,
+        categoryDistribution: {} as Record<string, number>
+    });
 
+    // Fetch all channels
     useEffect(() => {
-        // Mock data - In production, this would fetch from your blockchain/API
         const fetchChannels = async () => {
-            // Simulating API fetch delay
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            if (!channelNFT) {
+                console.log("Channel NFT contract not available yet");
+                return;
+            }
 
-            // Mock data based on your ChannelNFT contract structure
-            const mockChannels = [
-                {
-                    id: 1,
-                    name: "Space Explorers",
-                    description: "Discover the mysteries of our universe through engaging short-form content about astronomy, space missions, and cosmic phenomena.",
-                    category: "Science",
-                    creator: "0x7a2...3f8e",
-                    totalShares: 100,
-                    createdAt: Date.now() / 1000 - 60 * 60 * 24 * 30, // 30 days ago
-                    active: true,
-                    shareholders: 14,
-                    revenueToDate: "4.28",
-                    userShares: 5, // If the current user owns shares
-                    userSharePercentage: 5,
-                    claimableRevenue: 0.21
-                },
-                {
-                    id: 2,
-                    name: "Modern History",
-                    description: "Exploring pivotal moments in recent history through fact-based, educational content that contextualizes today's world.",
-                    category: "History",
-                    creator: "0x3b1...9c7a",
-                    totalShares: 150,
-                    createdAt: Date.now() / 1000 - 60 * 60 * 24 * 15, // 15 days ago
-                    active: true,
-                    shareholders: 8,
-                    revenueToDate: "2.65",
-                    userShares: 0,
-                    userSharePercentage: 0,
-                    claimableRevenue: 0
-                },
-                {
-                    id: 3,
-                    name: "AI Horizons",
-                    description: "Breaking down complex AI concepts into digestible, engaging content. From machine learning basics to cutting edge research.",
-                    category: "Technology",
-                    creator: "0xd4f...6e2b",
-                    totalShares: 120,
-                    createdAt: Date.now() / 1000 - 60 * 60 * 24 * 45, // 45 days ago
-                    active: true,
-                    shareholders: 22,
-                    revenueToDate: "8.12",
-                    userShares: 10,
-                    userSharePercentage: 8.33,
-                    claimableRevenue: 0.67
-                },
-                {
-                    id: 4,
-                    name: "Quantum Physics Explained",
-                    description: "Demystifying the strange world of quantum mechanics through intuitive analogies and visualizations.",
-                    category: "Science",
-                    creator: "0x9a5...7c1d",
-                    totalShares: 80,
-                    createdAt: Date.now() / 1000 - 60 * 60 * 24 * 7, // 7 days ago
-                    active: true,
-                    shareholders: 5,
-                    revenueToDate: "1.08",
-                    userShares: 0,
-                    userSharePercentage: 0,
-                    claimableRevenue: 0
-                },
-                {
-                    id: 5,
-                    name: "Financial Literacy",
-                    description: "Essential knowledge about personal finance, investing, and economic principles presented in easy-to-digest formats.",
-                    category: "Finance",
-                    creator: "0x5e2...8f1a",
-                    totalShares: 200,
-                    createdAt: Date.now() / 1000 - 60 * 60 * 24 * 60, // 60 days ago
-                    active: true,
-                    shareholders: 31,
-                    revenueToDate: "12.45",
-                    userShares: 0,
-                    userSharePercentage: 0,
-                    claimableRevenue: 0
-                },
-                {
-                    id: 6,
-                    name: "Art Through Ages",
-                    description: "A visual journey through art history, exploring influential movements, artists, and their impact on culture.",
-                    category: "Art",
-                    creator: "0x8c3...2d9b",
-                    totalShares: 90,
-                    createdAt: Date.now() / 1000 - 60 * 60 * 24 * 21, // 21 days ago
-                    active: true,
-                    shareholders: 7,
-                    revenueToDate: "3.27",
-                    userShares: 2,
-                    userSharePercentage: 2.22,
-                    claimableRevenue: 0.07
+            try {
+                setLoading(true);
+                console.log("Starting to fetch channels...");
+
+                // Get total number of channels
+                const totalChannelsData = await channelNFT.getTotalChannels();
+                const totalChannels = Number(totalChannelsData.toString());
+                console.log(`Total channels found: ${totalChannels}`);
+
+                if (totalChannels === 0) {
+                    console.log("No channels found");
+                    setChannels([]);
+                    setLoading(false);
+                    return;
                 }
-            ];
 
-            setChannels(mockChannels);
-            setLoading(false);
+                // Fetch all channels
+                const fetchedChannels: Channel[] = [];
+                const creators = new Set<string>();
+                const categoryCount: Record<string, number> = {};
+                let totalSharesCount = 0;
+
+                for (let i = 1; i <= totalChannels; i++) {
+                    console.log(`Fetching channel ID: ${i}`);
+                    try {
+                        const channelData = await channelNFT.getChannel(i);
+                        console.log(`Channel ${i} data:`, channelData);
+
+                        // Extract data from the channel
+                        const channel: Channel = {
+                            id: i,
+                            name: channelData.name,
+                            description: channelData.description,
+                            category: channelData.category,
+                            creator: channelData.creator,
+                            totalShares: Number(channelData.totalShares.toString()),
+                            createdAt: Number(channelData.createdAt.toString()),
+                            active: channelData.active,
+                        };
+
+                        // Update statistics data
+                        creators.add(channelData.creator);
+                        totalSharesCount += Number(channelData.totalShares.toString());
+
+                        // Update category distribution
+                        if (categoryCount[channel.category]) {
+                            categoryCount[channel.category]++;
+                        } else {
+                            categoryCount[channel.category] = 1;
+                        }
+
+                        // If user is connected, get their shares and claimable revenue
+                        if (account) {
+                            const userShares = await channelNFT.balanceOf(account, i);
+                            channel.userShares = Number(userShares.toString());
+
+                            if (channel.userShares > 0) {
+                                channel.userSharePercentage = (channel.userShares / channel.totalShares) * 100;
+
+                                // Get claimable revenue
+                                if (revenueDistribution) {
+                                    const claimable = await revenueDistribution.getClaimableRevenue(i, account);
+                                    channel.claimableRevenue = Number(ethers.utils.formatEther(claimable));
+                                }
+                            }
+                        }
+
+                        fetchedChannels.push(channel);
+                    } catch (channelError) {
+                        console.error(`Error fetching channel ${i}:`, channelError);
+                        // Continue to next channel instead of failing the whole process
+                    }
+                }
+
+                // Update stats
+                setStatsData({
+                    totalChannels,
+                    totalShares: totalSharesCount,
+                    totalCreators: creators.size,
+                    categoryDistribution: categoryCount
+                });
+
+                console.log(`Successfully fetched ${fetchedChannels.length} channels`);
+                setChannels(fetchedChannels);
+            } catch (error) {
+                console.error("Error fetching channels:", error);
+            } finally {
+                setLoading(false);
+            }
         };
 
         fetchChannels();
-    }, []);
+    }, [channelNFT, account, isConnected, revenueDistribution]);
+
+    // Create a new channel
+    const createChannel = async (channelData: { name: string; description: string; category: string; initialShares: number }) => {
+        if (!channelNFT || !isConnected) return;
+
+        try {
+            setIsCreatingChannel(true);
+
+            const tx = await channelNFT.createChannel(
+                channelData.name,
+                channelData.description,
+                channelData.category,
+                channelData.initialShares
+            );
+
+            await tx.wait();
+
+            // Get the channel ID from the event (assumes the event is the first one)
+            const receipt = await tx.wait();
+            const event = receipt.events?.find(e => e.event === 'ChannelCreated');
+            const channelId = event?.args?.channelId;
+
+            // Create the new channel object with transaction hash
+            const newChannel: Channel = {
+                id: Number(channelId),
+                name: channelData.name,
+                description: channelData.description,
+                category: channelData.category,
+                creator: account || '',
+                totalShares: channelData.initialShares,
+                createdAt: Math.floor(Date.now() / 1000),
+                active: true,
+                userShares: channelData.initialShares,
+                userSharePercentage: 100,
+                claimableRevenue: 0,
+                transactionHash: tx.hash
+            };
+
+            // Add to channels list
+            setChannels(prev => [...prev, newChannel]);
+
+            // Update stats
+            setStatsData(prev => ({
+                ...prev,
+                totalChannels: prev.totalChannels + 1,
+                totalShares: prev.totalShares + channelData.initialShares,
+                categoryDistribution: {
+                    ...prev.categoryDistribution,
+                    [channelData.category]: (prev.categoryDistribution[channelData.category] || 0) + 1
+                }
+            }));
+
+            // Close modal
+            setNewChannelModal(false);
+
+        } catch (error) {
+            console.error("Error creating channel:", error);
+        } finally {
+            setIsCreatingChannel(false);
+        }
+    };
+
+    // Claim revenue for a channel
+    const claimRevenue = async (channelId: number) => {
+        if (!revenueDistribution || !isConnected) return;
+
+        try {
+            const tx = await revenueDistribution.claimRevenue(channelId);
+            await tx.wait();
+
+            // Update the channel's claimable revenue
+            setChannels(prev =>
+                prev.map(channel =>
+                    channel.id === channelId
+                        ? { ...channel, claimableRevenue: 0 }
+                        : channel
+                )
+            );
+
+            // Also update selected channel if it's the one we claimed for
+            if (selectedChannel && selectedChannel.id === channelId) {
+                setSelectedChannel({ ...selectedChannel, claimableRevenue: 0 });
+            }
+
+            return tx.hash;
+        } catch (error) {
+            console.error("Error claiming revenue:", error);
+            throw error;
+        }
+    };
 
     // Filtering channels based on category and search query
     const filteredChannels = channels.filter(channel => {
@@ -517,30 +868,79 @@ export default function ChannelsPage() {
                 return a.createdAt - b.createdAt;
             case 'mostShares':
                 return b.totalShares - a.totalShares;
-            case 'mostRevenue':
-                return parseFloat(b.revenueToDate) - parseFloat(a.revenueToDate);
             default:
                 return 0;
         }
     });
 
-    // Categories for filtering
-    const categories = ['all', 'Science', 'History', 'Technology', 'Finance', 'Art', 'Education'];
+    // Categories for filtering - derive from actual data
+    const categories = ['all', ...Array.from(new Set(channels.map(c => c.category)))];
 
     // User owned channels
-    const userOwnedChannels = channels.filter(channel => channel.userShares > 0);
+    const userOwnedChannels = channels.filter(channel => (channel.userShares || 0) > 0);
+
+    // Calculate category distribution percentages for the visualization
+    const categoryDistribution = Object.entries(statsData.categoryDistribution).map(([category, count]) => ({
+        category,
+        count,
+        percentage: (count / statsData.totalChannels) * 100
+    })).sort((a, b) => b.percentage - a.percentage);
+
+    // Empty state component
+    const EmptyState = () => (
+        <div className="flex flex-col items-center justify-center py-16 bg-[#1A1A24]/30 rounded-xl border border-white/10">
+            <svg className="w-24 h-24 text-white/20 mb-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1"
+                    d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+            <h3 className="text-xl font-bold text-white mb-2">No Channels Found</h3>
+            <p className="text-white/70 text-center max-w-md mb-8">
+                Be the first to create a channel on KnowScroll and start sharing AI-generated educational content!
+            </p>
+            {isConnected ? (
+                <button
+                    onClick={() => setNewChannelModal(true)}
+                    className="px-6 py-3 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-full font-medium hover:shadow-glow transition-all flex items-center"
+                >
+                    <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0h-6" />
+                    </svg>
+                    Create Your First Channel
+                </button>
+            ) : (
+                <button
+                    onClick={connect}
+                    className="px-6 py-3 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-full font-medium hover:shadow-glow transition-all flex items-center"
+                >
+                    <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Connect Wallet to Get Started
+                </button>
+            )}
+        </div>
+    );
 
     return (
         <div className="min-h-screen bg-[#121218] text-white relative">
             <BackgroundAnimation />
             <AppNavBar />
 
+            {/* Network Switcher */}
+            {isConnected && <NetworkSwitcher currentChainId={chainId} />}
+
             <main className="max-w-screen-xl mx-auto px-4 py-12">
                 {/* Header Section */}
                 <div className="mb-12">
-                    <div className="inline-flex items-center px-3 py-1 mb-4 text-sm rounded-full bg-[#1A1A24]/80 backdrop-blur-sm border border-[#37E8FF]/20">
-                        <div className="w-2 h-2 rounded-full bg-[#37E8FF] mr-2 animate-pulse"></div>
-                        <span className="text-white/80">Powered by Sonic Blockchain</span>
+                    <div className="flex flex-col md:flex-row gap-2 mb-4">
+                        <div className="inline-flex items-center px-3 py-1 text-sm rounded-full bg-[#1A1A24]/80 backdrop-blur-sm border border-[#37E8FF]/20">
+                            <div className="w-2 h-2 rounded-full bg-[#37E8FF] mr-2 animate-pulse"></div>
+                            <span className="text-white/80">Powered by Sonic Blockchain</span>
+                        </div>
+
+                        <div className="inline-flex items-center px-3 py-1 text-sm rounded-full bg-[#FFB800]/20 backdrop-blur-sm border border-[#FFB800]/30">
+                            <span className="text-[#FFB800] font-medium">TESTNET MODE</span>
+                        </div>
                     </div>
 
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
@@ -556,7 +956,7 @@ export default function ChannelsPage() {
                             </p>
                         </div>
 
-                        {isConnected && (
+                        {isConnected ? (
                             <button
                                 onClick={() => setNewChannelModal(true)}
                                 className="px-6 py-3 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-full font-medium hover:shadow-glow transition-all flex items-center whitespace-nowrap"
@@ -565,6 +965,16 @@ export default function ChannelsPage() {
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0h-6" />
                                 </svg>
                                 Create New Channel
+                            </button>
+                        ) : (
+                            <button
+                                onClick={connect}
+                                className="px-6 py-3 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-full font-medium hover:shadow-glow transition-all flex items-center whitespace-nowrap"
+                            >
+                                <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                                Connect Wallet
                             </button>
                         )}
                     </div>
@@ -589,145 +999,175 @@ export default function ChannelsPage() {
                 )}
 
                 {/* Search and Filter Section */}
-                <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4">
-                    <div className="relative w-full md:w-auto md:min-w-[300px]">
-                        <input
-                            type="text"
-                            placeholder="Search channels..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full px-4 py-2 pl-10 bg-[#1A1A24]/60 rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white"
-                        />
-                        <svg className="w-5 h-5 text-white/50 absolute left-3 top-1/2 transform -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
-                    </div>
-
-                    <div className="flex flex-wrap gap-3 w-full md:w-auto">
-                        <div className="relative">
-                            <select
-                                value={filterCategory}
-                                onChange={(e) => setFilterCategory(e.target.value)}
-                                className="appearance-none w-full md:w-auto px-4 py-2 pr-10 bg-[#1A1A24]/60 rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white"
-                            >
-                                <option value="all">All Categories</option>
-                                {categories.filter(c => c !== 'all').map(category => (
-                                    <option key={category} value={category}>{category}</option>
-                                ))}
-                            </select>
-                            <svg className="w-4 h-4 text-white/50 absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                {channels.length > 0 && (
+                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4">
+                        <div className="relative w-full md:w-auto md:min-w-[300px]">
+                            <input
+                                type="text"
+                                placeholder="Search channels..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full px-4 py-2 pl-10 bg-[#1A1A24]/60 rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white"
+                            />
+                            <svg className="w-5 h-5 text-white/50 absolute left-3 top-1/2 transform -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                             </svg>
                         </div>
 
-                        <div className="relative">
-                            <select
-                                value={sortOption}
-                                onChange={(e) => setSortOption(e.target.value)}
-                                className="appearance-none w-full md:w-auto px-4 py-2 pr-10 bg-[#1A1A24]/60 rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white"
-                            >
-                                <option value="newest">Newest First</option>
-                                <option value="oldest">Oldest First</option>
-                                <option value="mostShares">Most Shares</option>
-                                <option value="mostRevenue">Highest Revenue</option>
-                            </select>
-                            <svg className="w-4 h-4 text-white/50 absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                            </svg>
-                        </div>
-                    </div>
-                </div>
+                        <div className="flex flex-wrap gap-3 w-full md:w-auto">
+                            <div className="relative">
+                                <select
+                                    value={filterCategory}
+                                    onChange={(e) => setFilterCategory(e.target.value)}
+                                    className="appearance-none w-full md:w-auto px-4 py-2 pr-10 bg-[#1A1A24]/60 rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white"
+                                >
+                                    <option value="all">All Categories</option>
+                                    {categories.filter(c => c !== 'all').map(category => (
+                                        <option key={category} value={category}>{category}</option>
+                                    ))}
+                                </select>
+                                <svg className="w-4 h-4 text-white/50 absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </div>
 
-                {/* Channels Grid */}
-                {loading ? (
-                    <div className="flex flex-col items-center justify-center py-12">
-                        <div className="w-12 h-12 rounded-full border-t-2 border-r-2 border-[#37E8FF] animate-spin mb-4"></div>
-                        <p className="text-white/70">Loading channels...</p>
-                    </div>
-                ) : sortedChannels.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {sortedChannels.map(channel => (
-                            <ChannelCard key={channel.id} channel={channel} isOwned={channel.userShares > 0} onSelectChannel={setSelectedChannel} />
-                        ))}
-                    </div>
-                ) : (
-                    <div className="flex flex-col items-center justify-center py-12 bg-[#1A1A24]/30 rounded-xl border border-white/10">
-                        <svg className="w-16 h-16 text-white/30 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <p className="text-white/70 text-lg mb-2">No channels found</p>
-                        <p className="text-white/50 text-sm">Try adjusting your search or filters</p>
+                            <div className="relative">
+                                <select
+                                    value={sortOption}
+                                    onChange={(e) => setSortOption(e.target.value)}
+                                    className="appearance-none w-full md:w-auto px-4 py-2 pr-10 bg-[#1A1A24]/60 rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white"
+                                >
+                                    <option value="newest">Newest First</option>
+                                    <option value="oldest">Oldest First</option>
+                                    <option value="mostShares">Most Shares</option>
+                                </select>
+                                <svg className="w-4 h-4 text-white/50 absolute right-3 top-1/2 transform -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </div>
+                        </div>
                     </div>
                 )}
 
+                {/* Channels Grid */}
+                {loading || loadingNFT ? (
+                    <div className="flex flex-col items-center justify-center py-16">
+                        <div className="w-16 h-16 border-t-2 border-b-2 border-[#37E8FF] rounded-full animate-spin mb-4"></div>
+                        <p className="text-white/70 text-lg">Loading channels from blockchain...</p>
+                    </div>
+                ) : channels.length > 0 ? (
+                    sortedChannels.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {sortedChannels.map(channel => (
+                                <ChannelCard
+                                    key={channel.id}
+                                    channel={channel}
+                                    isOwned={(channel.userShares || 0) > 0}
+                                    onSelectChannel={setSelectedChannel}
+                                />
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center py-12 bg-[#1A1A24]/30 rounded-xl border border-white/10">
+                            <svg className="w-16 h-16 text-white/30 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <p className="text-white/70 text-lg mb-2">No channels found</p>
+                            <p className="text-white/50 text-sm">Try adjusting your search or filters</p>
+                        </div>
+                    )
+                ) : (
+                    <EmptyState />
+                )}
+
                 {/* Network Stats Section */}
-                <div className="mt-16 bg-[#1A1A24]/60 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
-                    <h2 className="text-xl font-bold mb-6 bg-clip-text text-transparent bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A]">
-                        Network Statistics
-                    </h2>
+                {channels.length > 0 && (
+                    <div className="mt-16 bg-[#1A1A24]/60 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
+                        <h2 className="text-xl font-bold mb-6 bg-clip-text text-transparent bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A]">
+                            Network Statistics
+                        </h2>
 
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-[#121218]/80 rounded-xl p-4">
-                            <div className="text-white/60 text-sm mb-1">Total Channels</div>
-                            <div className="text-2xl font-bold">{channels.length}</div>
-                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div className="bg-[#121218]/80 rounded-xl p-4">
+                                <div className="text-white/60 text-sm mb-1">Total Channels</div>
+                                <div className="text-2xl font-bold">{statsData.totalChannels}</div>
+                            </div>
 
-                        <div className="bg-[#121218]/80 rounded-xl p-4">
-                            <div className="text-white/60 text-sm mb-1">Total Revenue</div>
-                            <div className="text-2xl font-bold">
-                                {channels.reduce((sum, channel) => sum + parseFloat(channel.revenueToDate || 0), 0).toFixed(2)} S
+                            <div className="bg-[#121218]/80 rounded-xl p-4">
+                                <div className="text-white/60 text-sm mb-1">Total Shares</div>
+                                <div className="text-2xl font-bold">{statsData.totalShares.toLocaleString()}</div>
+                            </div>
+
+                            <div className="bg-[#121218]/80 rounded-xl p-4">
+                                <div className="text-white/60 text-sm mb-1">Unique Creators</div>
+                                <div className="text-2xl font-bold">{statsData.totalCreators}</div>
+                            </div>
+
+                            <div className="bg-[#121218]/80 rounded-xl p-4">
+                                <div className="text-white/60 text-sm mb-1">Avg. Shares Per Channel</div>
+                                <div className="text-2xl font-bold">
+                                    {statsData.totalChannels > 0 ? Math.round(statsData.totalShares / statsData.totalChannels) : 0}
+                                </div>
                             </div>
                         </div>
 
-                        <div className="bg-[#121218]/80 rounded-xl p-4">
-                            <div className="text-white/60 text-sm mb-1">Active Shareholders</div>
-                            <div className="text-2xl font-bold">
-                                {channels.reduce((sum, channel) => sum + (channel.shareholders || 0), 0)}
-                            </div>
-                        </div>
+                        {/* Visual element: Category Distribution */}
+                        {categoryDistribution.length > 0 && (
+                            <div className="mt-6">
+                                <h3 className="text-sm font-medium text-white/70 mb-3">CATEGORY DISTRIBUTION</h3>
+                                <div className="h-4 w-full rounded-full overflow-hidden flex">
+                                    {categoryDistribution.map((category, index) => {
+                                        // Define a color for each category based on its index
+                                        const colors = [
+                                            'bg-[#37E8FF]',
+                                            'bg-[#FF3D8A]',
+                                            'bg-[#A742FF]',
+                                            'bg-[#FFC137]',
+                                            'bg-[#4CAF50]',
+                                            'bg-[#FF5722]',
+                                            'bg-[#9C27B0]',
+                                            'bg-[#3F51B5]'
+                                        ];
+                                        const colorClass = colors[index % colors.length];
 
-                        <div className="bg-[#121218]/80 rounded-xl p-4">
-                            <div className="text-white/60 text-sm mb-1">Avg. Shares Per Channel</div>
-                            <div className="text-2xl font-bold">
-                                {Math.round(channels.reduce((sum, channel) => sum + channel.totalShares, 0) / channels.length)}
+                                        return (
+                                            <div
+                                                key={category.category}
+                                                className={`h-full ${colorClass}`}
+                                                style={{ width: `${category.percentage}%` }}
+                                            ></div>
+                                        );
+                                    })}
+                                </div>
+                                <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3">
+                                    {categoryDistribution.map((category, index) => {
+                                        // Define a color for each category (matching the above colors)
+                                        const colors = [
+                                            'bg-[#37E8FF]',
+                                            'bg-[#FF3D8A]',
+                                            'bg-[#A742FF]',
+                                            'bg-[#FFC137]',
+                                            'bg-[#4CAF50]',
+                                            'bg-[#FF5722]',
+                                            'bg-[#9C27B0]',
+                                            'bg-[#3F51B5]'
+                                        ];
+                                        const colorClass = colors[index % colors.length];
+
+                                        return (
+                                            <div key={category.category} className="flex items-center">
+                                                <div className={`w-3 h-3 rounded-full ${colorClass} mr-1.5`}></div>
+                                                <span className="text-xs text-white/70">
+                                                    {category.category} ({Math.round(category.percentage)}%)
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
-
-                    {/* Visual element: Category Distribution */}
-                    <div className="mt-6">
-                        <h3 className="text-sm font-medium text-white/70 mb-3">CATEGORY DISTRIBUTION</h3>
-                        <div className="h-4 w-full rounded-full overflow-hidden flex">
-                            <div className="h-full bg-[#37E8FF]" style={{ width: '30%' }}></div>
-                            <div className="h-full bg-[#FF3D8A]" style={{ width: '25%' }}></div>
-                            <div className="h-full bg-[#A742FF]" style={{ width: '20%' }}></div>
-                            <div className="h-full bg-[#FFC137]" style={{ width: '15%' }}></div>
-                            <div className="h-full bg-[#4CAF50]" style={{ width: '10%' }}></div>
-                        </div>
-                        <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3">
-                            <div className="flex items-center">
-                                <div className="w-3 h-3 rounded-full bg-[#37E8FF] mr-1.5"></div>
-                                <span className="text-xs text-white/70">Science (30%)</span>
-                            </div>
-                            <div className="flex items-center">
-                                <div className="w-3 h-3 rounded-full bg-[#FF3D8A] mr-1.5"></div>
-                                <span className="text-xs text-white/70">History (25%)</span>
-                            </div>
-                            <div className="flex items-center">
-                                <div className="w-3 h-3 rounded-full bg-[#A742FF] mr-1.5"></div>
-                                <span className="text-xs text-white/70">Technology (20%)</span>
-                            </div>
-                            <div className="flex items-center">
-                                <div className="w-3 h-3 rounded-full bg-[#FFC137] mr-1.5"></div>
-                                <span className="text-xs text-white/70">Finance (15%)</span>
-                            </div>
-                            <div className="flex items-center">
-                                <div className="w-3 h-3 rounded-full bg-[#4CAF50] mr-1.5"></div>
-                                <span className="text-xs text-white/70">Art (10%)</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                )}
             </main>
 
             {/* Channel Details Modal */}
@@ -736,85 +1176,17 @@ export default function ChannelsPage() {
                     channel={selectedChannel}
                     onClose={() => setSelectedChannel(null)}
                     isConnected={isConnected}
+                    onClaimRevenue={claimRevenue}
                 />
             )}
 
-            {/* Create New Channel Modal - This would be implemented with form fields matching the ChannelNFT contract */}
+            {/* Create New Channel Modal */}
             {newChannelModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    {/* Backdrop */}
-                    <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setNewChannelModal(false)}></div>
-
-                    {/* Modal */}
-                    <div className="relative bg-[#1A1A24] rounded-2xl border border-white/10 shadow-xl w-full max-w-lg p-6">
-                        <button
-                            onClick={() => setNewChannelModal(false)}
-                            className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-all"
-                        >
-                            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
-                            </svg>
-                        </button>
-
-                        <h2 className="text-xl font-bold mb-6 text-center bg-clip-text text-transparent bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A]">
-                            Create New Channel
-                        </h2>
-
-                        <form className="space-y-4">
-                            <div>
-                                <label className="block text-white/70 text-sm mb-1">Channel Name</label>
-                                <input
-                                    type="text"
-                                    placeholder="Enter channel name"
-                                    className="w-full px-4 py-2 bg-[#121218] rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-white/70 text-sm mb-1">Description</label>
-                                <textarea
-                                    placeholder="Describe your channel content"
-                                    rows={4}
-                                    className="w-full px-4 py-2 bg-[#121218] rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white resize-none"
-                                ></textarea>
-                            </div>
-
-                            <div>
-                                <label className="block text-white/70 text-sm mb-1">Category</label>
-                                <select
-                                    className="w-full px-4 py-2 bg-[#121218] rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white appearance-none"
-                                >
-                                    <option value="">Select a category</option>
-                                    {categories.filter(c => c !== 'all').map(category => (
-                                        <option key={category} value={category}>{category}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div>
-                                <label className="block text-white/70 text-sm mb-1">Initial Shares</label>
-                                <input
-                                    type="number"
-                                    placeholder="100"
-                                    min="1"
-                                    className="w-full px-4 py-2 bg-[#121218] rounded-lg border border-white/10 focus:border-[#37E8FF]/50 focus:outline-none text-white"
-                                />
-                                <p className="text-white/50 text-xs mt-1">
-                                    You'll initially own 100% of these shares.
-                                </p>
-                            </div>
-
-                            <div className="pt-4">
-                                <button
-                                    type="submit"
-                                    className="w-full py-3 bg-gradient-to-r from-[#37E8FF] to-[#FF3D8A] text-white rounded-lg font-medium hover:shadow-glow transition-all"
-                                >
-                                    Create Channel
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
+                <CreateChannelModal
+                    onClose={() => setNewChannelModal(false)}
+                    onCreateChannel={createChannel}
+                    isCreating={isCreatingChannel}
+                />
             )}
         </div>
     );

@@ -18,26 +18,39 @@ function useContract(address: string, abi: any) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!provider) {
-      setLoading(false);
-      return;
-    }
+    const setupContract = async () => {
+      try {
+        setLoading(true);
 
-    try {
-      setLoading(true);
-      const contractInstance = new ethers.Contract(
-        address,
-        abi,
-        signer || provider
-      );
-      setContract(contractInstance);
-      setError(null);
-    } catch (err) {
-      console.error("Contract initialization error:", err);
-      setError("Failed to connect to contract");
-    } finally {
-      setLoading(false);
-    }
+        if (!provider) {
+          console.log("No provider available");
+          setContract(null);
+          setError("No provider connected");
+          setLoading(false);
+          return;
+        }
+
+        // Always create a read-only version of the contract with provider
+        const readContract = new ethers.Contract(address, abi, provider);
+
+        // If signer is available, create a writable version
+        const contractInstance = signer
+          ? readContract.connect(signer)
+          : readContract;
+
+        console.log(`Contract initialized at ${address}`);
+        setContract(contractInstance);
+        setError(null);
+      } catch (err) {
+        console.error("Contract initialization error:", err);
+        setError("Failed to connect to contract");
+        setContract(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    setupContract();
   }, [address, abi, provider, signer]);
 
   return { contract, loading, error };
