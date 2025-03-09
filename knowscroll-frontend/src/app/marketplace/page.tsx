@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -197,7 +198,7 @@ const ChannelSelector = ({
     if (userOwnedChannels.length === 0) {
         return (
             <div className="p-4 text-center">
-                <p className="text-white/70 mb-4">You don't own shares in any channels yet.</p>
+                <p className="text-white/70 mb-4">You don&apos;t own shares in any channels yet.</p>
                 <Link
                     href="/channels"
                     className="inline-flex items-center px-4 py-2 bg-[#1A1A24] border border-white/10 rounded-lg hover:border-[#37E8FF]/30 transition-all"
@@ -246,7 +247,9 @@ const ChannelSelector = ({
 
 export default function MarketplacePage() {
     const { isConnected, connect, account, chainId } = useWallet();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { contract: channelNFT, loading: loadingNFT } = useChannelNFT();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { contract: marketplace, loading: loadingMarketplace } = useMarketplace();
 
     const searchParams = useSearchParams();
@@ -354,7 +357,7 @@ export default function MarketplacePage() {
             const totalListings = Number(totalListingsData.toString());
 
             let activeListingsCount = 0;
-            let totalVolumeEth = ethers.BigNumber.from(0);
+            // let totalVolumeEth = ethers.BigNumber.from(0);
             let totalPriceSum = ethers.BigNumber.from(0);
             let activePriceCount = 0;
 

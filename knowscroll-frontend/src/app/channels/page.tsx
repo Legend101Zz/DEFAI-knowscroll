@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -6,7 +7,7 @@ import { ethers } from 'ethers';
 import AppNavBar from '@/components/layout/AppNavBar';
 import { useWallet } from '@/context/WalletContext';
 import { useChannelNFT, useRevenueDistribution } from '@/hooks/useContract';
-import { TESTNET_CHAIN_ID, TESTNET_NAME } from '@/lib/contracts/addresses';
+import { TESTNET_CHAIN_ID, } from '@/lib/contracts/addresses';
 
 // Types
 interface Channel {
@@ -516,7 +517,7 @@ const CreateChannelModal = ({
                             required
                         />
                         <p className="text-white/50 text-xs mt-1">
-                            You'll initially own 100% of these shares.
+                            You&apos;ll initially own 100% of these shares.
                         </p>
                     </div>
 
@@ -779,7 +780,7 @@ export default function ChannelsPage() {
 
             // Get the channel ID from the event (assumes the event is the first one)
             const receipt = await tx.wait();
-            const event = receipt.events?.find(e => e.event === 'ChannelCreated');
+            const event = receipt.events?.find((e: any) => e.event === 'ChannelCreated');
             const channelId = event?.args?.channelId;
 
             // Create the new channel object with transaction hash

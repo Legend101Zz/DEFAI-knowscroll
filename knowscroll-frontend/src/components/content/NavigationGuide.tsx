@@ -84,7 +84,7 @@ export default function NavigationGuide({ onDismiss, showInitially = true }: Nav
                             </div>
                             <h4 className="text-lg font-medium text-center text-white">Swipe Right</h4>
                             <p className="text-white/70 text-center">
-                                Swipe right to revisit previous topics or go back to content you've seen before.
+                                Swipe right to revisit previous topics or go back to content you&apos;ve seen before.
                             </p>
                         </div>
                     )}
@@ -129,8 +129,8 @@ export default function NavigationGuide({ onDismiss, showInitially = true }: Nav
                             <div
                                 key={index}
                                 className={`w-2 h-2 rounded-full transition-all ${currentStep === index + 1
-                                        ? 'w-4 bg-white'
-                                        : 'bg-white/30'
+                                    ? 'w-4 bg-white'
+                                    : 'bg-white/30'
                                     }`}
                             ></div>
                         ))}

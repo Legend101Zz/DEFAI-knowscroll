@@ -1,8 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { ethers } from 'ethers';
 import AppNavBar from '@/components/layout/AppNavBar';
 import { useWallet } from '@/context/WalletContext';
 import { useChannelNFT, useGovernance } from '@/hooks/useContract';
@@ -213,7 +213,7 @@ const ChannelSelector = ({
     if (channels.length === 0) {
         return (
             <div className="p-4 text-center">
-                <p className="text-white/70 mb-4">You don't own shares in any channels.</p>
+                <p className="text-white/70 mb-4">You don&apos;t own shares in any channels.</p>
                 <Link
                     href="/channels"
                     className="inline-flex items-center px-4 py-2 bg-[#1A1A24] border border-white/10 rounded-lg hover:border-[#37E8FF]/30 transition-all"
@@ -440,7 +440,7 @@ const ProposalCard = ({
 
                 {proposal.status === 'active' && proposal.hasVoted && (
                     <div className="text-center py-2 px-4 bg-[#121218] border border-white/10 rounded-lg text-sm">
-                        You've already voted on this proposal
+                        You&apos;ve already voted on this proposal
                     </div>
                 )}
 
@@ -666,7 +666,9 @@ const CreateProposalModal = ({
 // Governance Page Component
 export default function GovernancePage() {
     const { isConnected, connect, account, chainId } = useWallet();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { contract: channelNFT, loading: loadingNFT } = useChannelNFT();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { contract: governance, loading: loadingGovernance } = useGovernance();
 
     const searchParams = useSearchParams();
@@ -1079,7 +1081,7 @@ export default function GovernancePage() {
 
                             <div className="mb-8">
                                 <p className="text-white/80 mb-4">
-                                    KnowScroll's governance system allows channel stakeholders to collectively decide on content direction.
+                                    KnowScroll&apos;s governance system allows channel stakeholders to collectively decide on content direction.
                                     As a token holder, your voting power is proportional to your share ownership.
                                 </p>
 
@@ -1142,7 +1144,7 @@ export default function GovernancePage() {
                                         </div>
                                         <h3 className="text-lg font-medium mb-2 text-center">AI Content Creation</h3>
                                         <p className="text-white/70 text-sm text-center">
-                                            Our AI automatically generates educational videos based on approved proposals. Stakeholders review draft content before it's published to the channel.
+                                            Our AI automatically generates educational videos based on approved proposals. Stakeholders review draft content before it&apos;s published to the channel.
                                         </p>
                                     </div>
                                 </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useWallet } from '@/context/WalletContext';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -46,7 +46,7 @@ export default function ExplorePage() {
     const [playbackSpeed, setPlaybackSpeed] = useState(1);
     const [userLikes, setUserLikes] = useState<{ [key: string]: boolean }>({});
     const [userSaves, setUserSaves] = useState<{ [key: string]: boolean }>({});
-    const progressTimer = useRef<NodeJS.Timeout | null>(null);
+    // const progressTimer = useRef<NodeJS.Timeout | null>(null);
     const [isMobileView, setIsMobileView] = useState(false);
     const [showInfo, setShowInfo] = useState(true);
     const [transitioning, setTransitioning] = useState(false);

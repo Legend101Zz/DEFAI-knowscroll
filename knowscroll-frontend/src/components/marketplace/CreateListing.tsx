@@ -247,7 +247,7 @@ export default function CreateListing({ channelId, onSuccess }: CreateListingPro
                 </div>
             ) : (
                 <div className="p-6 text-center bg-[#121218] rounded-lg border border-white/10">
-                    <div className="text-white/70 mb-4">You don't have any shares for Channel #{channelId}.</div>
+                    <div className="text-white/70 mb-4">You don&apos;t have any shares for Channel #{channelId}.</div>
                     <a
                         href={`/channels/${channelId}`}
                         className="inline-flex items-center px-4 py-2 bg-[#37E8FF]/20 text-[#37E8FF] rounded-lg hover:bg-[#37E8FF]/30 transition-colors"

@@ -25,8 +25,11 @@ interface MarketplaceListingsProps {
 }
 
 export default function MarketplaceListings({ selectedChannelId, refresh = 0 }: MarketplaceListingsProps) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { isConnected, account } = useWallet();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { contract: marketplace, loading: loadingMarketplace } = useMarketplace();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { contract: channelNFT, loading: loadingChannelNFT } = useChannelNFT();
 
     const [listings, setListings] = useState<Listing[]>([]);
