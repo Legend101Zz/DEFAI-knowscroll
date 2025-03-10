@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
@@ -377,7 +378,9 @@ const VoteModal = ({
 
 // Main Content Review Page Component
 export default function ContentReviewPage() {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { isConnected, connect, account, chainId } = useWallet();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { contract: channelNFT, loading: loadingNFT } = useChannelNFT();
 
     const [contentDrafts, setContentDrafts] = useState<ContentDraft[]>([]);
@@ -652,7 +655,7 @@ export default function ContentReviewPage() {
                             </h1>
 
                             <p className="text-white/70 text-lg max-w-2xl">
-                                Review and vote on AI-generated content before it's published to channels. Provide feedback to improve content quality.
+                                Review and vote on AI-generated content before it&apos;s published to channels. Provide feedback to improve content quality.
                             </p>
                         </div>
                     </div>
