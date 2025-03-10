@@ -11,6 +11,7 @@
     "User profile analysis complete. Based on your viewing history of physics content, I recommend the new 'Quantum Mechanics Simplified' series.",
     "Channel #23 has shown 42% higher engagement than average this week. Initiating reward distribution of 0.05 $S tokens."
   ],
+  "example_accounts": ["0xknowscroll"],
   "loop_delay": 900,
   "config": [
     {
@@ -28,5 +29,10 @@
     { "name": "generate-recommendations", "weight": 4 },
     { "name": "calculate-engagement-metrics", "weight": 2 },
     { "name": "distribute-rewards", "weight": 1 }
-  ]
+  ],
+  "use_time_based_weights": false,
+  "time_based_multipliers": {
+    "tweet_night_multiplier": 0.4,
+    "engagement_day_multiplier": 1.5
+  }
 }
